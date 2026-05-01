@@ -468,7 +468,10 @@ function renderEstufas() {
               <div style="font-size:11px;padding:6px 0;border-bottom:1px solid var(--border)">
                 <div class="row">
                   <div style="color:var(--greenD)">${fmtD(h.plantio)} → ${fmtD(h.encerradoEm)}</div>
-                  <div style="color:var(--muted)">${h.variedade||''}</div>
+                  <div class="row" style="gap:8px">
+                    <div style="color:var(--muted)">${h.variedade||''}</div>
+                    <button class="btn-danger" data-del-ciclo="${h.id}">✕</button>
+                  </div>
                 </div>
                 ${h.obs?`<div style="color:var(--muted);font-size:10px;margin-top:2px">${h.obs}</div>`:''}
               </div>`).join('')}
@@ -755,6 +758,11 @@ function attachEvents() {
 
   const btnOcc = document.getElementById('btn-salvar-occ');
   if(btnOcc) btnOcc.addEventListener('click', salvarOcorrencia);
+
+  // deletar ciclo do histórico
+  document.querySelectorAll('[data-del-ciclo]').forEach(btn=>{
+    btn.addEventListener('click',()=>deleteDoc(doc(db,'ciclos',btn.dataset.delCiclo)));
+  });
 
   // editar campos do ciclo (1ª colheita, última colheita)
   document.querySelectorAll('[data-ciclo-field]').forEach(input=>{
