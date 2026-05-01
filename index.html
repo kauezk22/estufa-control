@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Estufa · Controle</title>
+<title>Estufa · Gestão</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -81,6 +81,10 @@ textarea{resize:vertical;min-height:60px}
 .loading{height:100vh;display:flex;align-items:center;justify-content:center;color:var(--green);font-size:13px}
 .empty{text-align:center;padding:32px;color:var(--muted);font-size:12px;line-height:1.8}
 input[type=number]::-webkit-inner-spin-button{opacity:.3}
+.confirm-overlay{position:fixed;inset:0;background:#000000cc;z-index:300;display:flex;align-items:center;justify-content:center;padding:24px}
+.confirm-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:280px;text-align:center}
+.confirm-msg{font-size:13px;color:var(--text);margin-bottom:20px;line-height:1.6}
+.confirm-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 ::-webkit-scrollbar{width:3px}
 ::-webkit-scrollbar-thumb{background:#1e3a1e;border-radius:2px}
 </style>
@@ -98,9 +102,9 @@ import {
 // ─── Firebase Config ──────────────────────────────────────────────────────────
 const app = initializeApp({
   apiKey: "AIzaSyD5O_BKJW3gAne5uxGxvLffGnuY0tpH-hU",
-  authDomain: "estufa-control.firebaseapp.com",
-  projectId: "estufa-control",
-  storageBucket: "estufa-control.firebasestorage.app",
+  authDomain: "estufa-gestao.firebaseapp.com",
+  projectId: "estufa-gestao",
+  storageBucket: "estufa-gestao.firebasestorage.app",
   messagingSenderId: "1034393767324",
   appId: "1:1034393767324:web:0153fd2de071ed77004c59"
 });
@@ -179,7 +183,7 @@ function render() {
 function renderHeader() {
   const d = new Date().toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short'});
   return `<div class="header">
-    <div><div class="header-title">ESTUFA</div><div class="header-sub">Controle Financeiro</div></div>
+    <div><div class="header-title">ESTUFA</div><div class="header-sub">Gestão da Operação</div></div>
     <div class="header-date">${d}</div>
   </div>`;
 }
@@ -723,6 +727,21 @@ function renderModal() {
 }
 
 // ─── Events ──────────────────────────────────────────────────────────────────
+function confirmar(msg, onSim) {
+  const div = document.createElement('div');
+  div.className = 'confirm-overlay';
+  div.innerHTML = `<div class="confirm-box">
+    <div class="confirm-msg">${msg}</div>
+    <div class="confirm-btns">
+      <button class="btn btn-ghost" id="conf-nao">Cancelar</button>
+      <button class="btn btn-red" id="conf-sim">Excluir</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  div.querySelector('#conf-nao').addEventListener('click', ()=>div.remove());
+  div.querySelector('#conf-sim').addEventListener('click', ()=>{ div.remove(); onSim(); });
+}
+
 function attachEvents() {
   // nav
   document.querySelectorAll('[data-tab]').forEach(btn=>{
@@ -772,7 +791,7 @@ function attachEvents() {
 
   // deletar ciclo do histórico
   document.querySelectorAll('[data-del-ciclo]').forEach(btn=>{
-    btn.addEventListener('click',()=>{ if(confirm('Excluir este ciclo?')) deleteDoc(doc(db,'ciclos',btn.dataset.delCiclo)); });
+    btn.addEventListener('click',()=>confirmar('Excluir este ciclo?',()=>deleteDoc(doc(db,'ciclos',btn.dataset.delCiclo))));
   });
 
   // editar campos do ciclo (1ª colheita, última colheita)
@@ -786,12 +805,12 @@ function attachEvents() {
 
   // deletar colheita
   document.querySelectorAll('[data-del-col]').forEach(btn=>{
-    btn.addEventListener('click',()=>{ if(confirm('Excluir esta colheita?')) deleteDoc(doc(db,'colheitas',btn.dataset.delCol)); });
+    btn.addEventListener('click',()=>confirmar('Excluir esta colheita?',()=>deleteDoc(doc(db,'colheitas',btn.dataset.delCol))));
   });
 
   // deletar custo
   document.querySelectorAll('[data-del-cus]').forEach(btn=>{
-    btn.addEventListener('click',()=>{ if(confirm('Excluir este custo?')) deleteDoc(doc(db,'custos',btn.dataset.delCus)); });
+    btn.addEventListener('click',()=>confirmar('Excluir este custo?',()=>deleteDoc(doc(db,'custos',btn.dataset.delCus))));
   });
 }
 
@@ -910,7 +929,7 @@ function renderPin(erro) {
   document.getElementById('app').innerHTML = `
     <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg);padding:32px">
       <div style="font-size:20px;font-weight:500;color:var(--green);letter-spacing:.15em;margin-bottom:4px">ESTUFA</div>
-      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.15em;margin-bottom:40px">Controle Financeiro</div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.15em;margin-bottom:40px">Gestão da Operação</div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 24px;width:100%;max-width:280px">
         <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:16px;text-transform:uppercase;letter-spacing:.1em">Digite o PIN</div>
         <input type="password" inputmode="numeric" id="pin-input" maxlength="4"
