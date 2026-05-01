@@ -103,8 +103,8 @@ import {
 const app = initializeApp({
   apiKey: "AIzaSyD5O_BKJW3gAne5uxGxvLffGnuY0tpH-hU",
   authDomain: "estufa-gestao.firebaseapp.com",
-  projectId: "estufa-gestao",
-  storageBucket: "estufa-gestao.firebasestorage.app",
+  projectId: "estufa-control",
+  storageBucket: "estufa-control.firebasestorage.app",
   messagingSenderId: "1034393767324",
   appId: "1:1034393767324:web:0153fd2de071ed77004c59"
 });
@@ -869,20 +869,19 @@ async function criarCiclo() {
   const plantio = document.getElementById('m-plantio')?.value;
   if(!plantio) return;
   const estufa = S.modalData.estufa;
-  // Encerrar ciclo anterior se existir
+  const variedade = document.getElementById('m-variedade')?.value||'';
+  const origemMudas = document.getElementById('m-origem')?.value||'';
+  const obs = document.getElementById('m-obs')?.value||'';
+  S.modal=null; render();
   const anterior = cicloAtivo(estufa);
   if(anterior) await updateDoc(doc(db,'ciclos',anterior.id),{encerrado:true, encerradoEm:today()});
   await addDoc(collection(db,'ciclos'),{
-    estufa, plantio,
-    variedade: document.getElementById('m-variedade')?.value||'',
-    origemMudas: document.getElementById('m-origem')?.value||'',
-    obs: document.getElementById('m-obs')?.value||'',
+    estufa, plantio, variedade, origemMudas, obs,
     encerrado: false,
     primeiraColheita: null,
     ultimaColheita: null,
     createdAt: serverTimestamp(),
   });
-  S.modal=null; render();
 }
 
 async function encerrarCiclo() {
@@ -890,31 +889,31 @@ async function encerrarCiclo() {
   const ultimaCol = document.getElementById('m-ultima-col')?.value;
   const totalCx = +document.getElementById('m-total-cx')?.value||0;
   const obs = document.getElementById('m-enc-obs')?.value||'';
+  S.modal=null; render();
   await updateDoc(doc(db,'ciclos',cicloId),{
     encerrado:true, encerradoEm:today(),
     ultimaColheita:ultimaCol||today(),
     totalCaixas:totalCx, obs,
   });
-  S.modal=null; render();
 }
 
 async function salvarOcorrencia() {
   const desc = document.getElementById('m-occ-desc')?.value;
   if(!desc) return;
   const sev = document.querySelector('input[name="m-occ-sev"]:checked')?.value||'leve';
-  await addDoc(collection(db,'ocorrencias'),{
+  const entry = {
     cicloId: S.modalData.cicloId,
     estufa: S.modalData.estufa,
     data: document.getElementById('m-occ-data')?.value,
     tipo: document.getElementById('m-occ-tipo')?.value,
-    descricao: desc,
-    severidade: sev,
+    descricao: desc, severidade: sev,
     produto: document.getElementById('m-occ-prod')?.value||'',
     dose: document.getElementById('m-occ-dose')?.value||'',
     resolucao: document.getElementById('m-occ-res')?.value||'',
     createdAt: serverTimestamp(),
-  });
+  };
   S.modal=null; render();
+  await addDoc(collection(db,'ocorrencias'), entry);
 }
 
 // ─── PIN Lock ────────────────────────────────────────────────────────────────
