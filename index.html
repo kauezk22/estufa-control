@@ -772,7 +772,7 @@ function attachEvents() {
 
   // deletar ciclo do histórico
   document.querySelectorAll('[data-del-ciclo]').forEach(btn=>{
-    btn.addEventListener('click',()=>deleteDoc(doc(db,'ciclos',btn.dataset.delCiclo)));
+    btn.addEventListener('click',()=>{ if(confirm('Excluir este ciclo?')) deleteDoc(doc(db,'ciclos',btn.dataset.delCiclo)); });
   });
 
   // editar campos do ciclo (1ª colheita, última colheita)
@@ -786,12 +786,12 @@ function attachEvents() {
 
   // deletar colheita
   document.querySelectorAll('[data-del-col]').forEach(btn=>{
-    btn.addEventListener('click',()=>deleteDoc(doc(db,'colheitas',btn.dataset.delCol)));
+    btn.addEventListener('click',()=>{ if(confirm('Excluir esta colheita?')) deleteDoc(doc(db,'colheitas',btn.dataset.delCol)); });
   });
 
   // deletar custo
   document.querySelectorAll('[data-del-cus]').forEach(btn=>{
-    btn.addEventListener('click',()=>deleteDoc(doc(db,'custos',btn.dataset.delCus)));
+    btn.addEventListener('click',()=>{ if(confirm('Excluir este custo?')) deleteDoc(doc(db,'custos',btn.dataset.delCus)); });
   });
 }
 
