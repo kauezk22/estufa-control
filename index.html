@@ -511,17 +511,30 @@ function renderEstufas() {
         ${historico.length>0?`
           <div style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
             <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">Histórico (${historico.length} ciclo${historico.length>1?'s':''})</div>
-            ${historico.map(h=>`
-              <div style="font-size:11px;padding:6px 0;border-bottom:1px solid var(--border)">
-                <div class="row">
-                  <div style="color:var(--greenD)">${fmtD(h.plantio)} → ${fmtD(h.encerradoEm)}</div>
-                  <div class="row" style="gap:8px">
-                    <div style="color:var(--muted)">${h.variedade||''}</div>
-                    <button class="btn-danger" data-del-ciclo="${h.id}">✕</button>
-                  </div>
+            ${historico.map(h=>{
+              const hOccs = S.ocorrencias.filter(o=>o.cicloId===h.id);
+              return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+                <div class="row" style="margin-bottom:6px">
+                  <div style="color:var(--greenD);font-size:12px;font-weight:500">${fmtD(h.plantio)} → ${fmtD(h.encerradoEm)}</div>
+                  <button class="btn-danger" data-del-ciclo="${h.id}">✕</button>
                 </div>
-                ${h.obs?`<div style="color:var(--muted);font-size:10px;margin-top:2px">${h.obs}</div>`:''}
-              </div>`).join('')}
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;margin-bottom:6px">
+                  ${h.variedade?`<div><span style="color:var(--muted)">Variedade:</span> <span style="color:var(--text)">${h.variedade}</span></div>`:''}
+                  ${h.tipoMuda?`<div><span style="color:var(--muted)">Tipo:</span> <span style="color:var(--text)">${h.tipoMuda==='porta-enxerto'?'Porta-enxerto':'Pé Franco'}${h.portaEnxerto?' ('+h.portaEnxerto+')':''}</span></div>`:''}
+                  ${h.qtdMudas?`<div><span style="color:var(--muted)">Mudas:</span> <span style="color:var(--text)">${h.qtdMudas}</span></div>`:''}
+                  ${h.espacamento?`<div><span style="color:var(--muted)">Espaçamento:</span> <span style="color:var(--text)">${h.espacamento}</span></div>`:''}
+                  ${h.primeiraColheita?`<div><span style="color:var(--muted)">1ª colheita:</span> <span style="color:var(--text)">${fmtD(h.primeiraColheita)}</span></div>`:''}
+                  ${h.ultimaColheita?`<div><span style="color:var(--muted)">Última col.:</span> <span style="color:var(--text)">${fmtD(h.ultimaColheita)}</span></div>`:''}
+                  ${h.semeio?`<div><span style="color:var(--muted)">Semeio:</span> <span style="color:var(--text)">${fmtD(h.semeio)}</span></div>`:''}
+                </div>
+                ${h.obs?`<div style="font-size:10px;color:var(--muted);margin-bottom:6px">${h.obs}</div>`:''}
+                ${hOccs.length>0?`<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">${hOccs.length} ocorrência(s)</div>
+                  ${hOccs.map(o=>`<div style="font-size:10px;padding:4px 0;border-top:1px solid var(--border)">
+                    <span style="color:var(--text)">${o.tipo}</span> — <span class="severity-${o.severidade}">${o.severidade}</span> — <span style="color:var(--muted)">${fmtD(o.data)}</span>
+                    <div style="color:var(--greenD)">${o.descricao}${o.produto?' · '+o.produto:''}</div>
+                  </div>`).join('')}`:''}
+              </div>`;
+            }).join('')}
           </div>`:''}
       </div>`;
     }).join('')}
@@ -747,7 +760,6 @@ function renderModal() {
   if(modal==='encerrar') {
     body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Encerrar Ciclo</div>
       <div style="margin-bottom:8px"><label class="lbl">Última Colheita</label><input type="date" id="m-ultima-col" value="${today()}"></div>
-      <div style="margin-bottom:8px"><label class="lbl">Total Caixas (estimado)</label><input type="number" min="0" id="m-total-cx" placeholder="0"></div>
       <div style="margin-bottom:16px"><label class="lbl">Observações finais</label><textarea id="m-enc-obs" placeholder="..."></textarea></div>
       <button class="btn btn-red" id="btn-confirmar-encerrar">Encerrar Ciclo</button>`;
   }
@@ -958,13 +970,11 @@ async function criarCiclo() {
 async function encerrarCiclo() {
   const cicloId = S.modalData.cicloId;
   const ultimaCol = document.getElementById('m-ultima-col')?.value;
-  const totalCx = +document.getElementById('m-total-cx')?.value||0;
   const obs = document.getElementById('m-enc-obs')?.value||'';
   S.modal=null; render();
   await updateDoc(doc(db,'ciclos',cicloId),{
     encerrado:true, encerradoEm:today(),
-    ultimaColheita:ultimaCol||today(),
-    totalCaixas:totalCx, obs,
+    ultimaColheita:ultimaCol||today(), obs,
   });
 }
 
