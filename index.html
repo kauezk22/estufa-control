@@ -279,16 +279,16 @@ function renderPainel() {
     </div>
 
     <div class="grid2">
-      ${metric('Receita mês',fmt$(rec),'var(--green)')}
+      ${metric(`Receita — ${getPeriodoLabel()}`,fmt$(rec),'var(--green)')}
       ${metric('Resultado',fmt$(res),res>=0?'var(--green)':'var(--red)')}
       ${metric('Mercado',fmt$(recM),'var(--blue)',rec>0?`${(recM/rec*100).toFixed(0)}% da receita`:'')}
       ${metric('CEASA',fmt$(recC),'var(--amber)',rec>0?`${(recC/rec*100).toFixed(0)}% da receita`:'')}
-      ${metric('Custos mês',fmt$(cus),'var(--orange)')}
+      ${metric(`Custos — ${getPeriodoLabel()}`,fmt$(cus),'var(--orange)')}
       ${metric('Margem',`${mar.toFixed(1)}%`,mar>=0?'var(--green)':'var(--red)')}
     </div>
 
     <div class="card">
-      <div class="card-title">Caixas — Mês Atual</div>
+      <div class="card-title">Caixas — ${getPeriodoLabel()}</div>
       <div style="margin-bottom:10px">
         <div style="font-size:9px;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Supermercado</div>
         <span style="font-size:24px;font-weight:500;color:var(--blue)">${tMG}</span>
