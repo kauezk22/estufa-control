@@ -125,6 +125,7 @@ const SEV = ['leve','moderada','grave'];
 // ─── State ────────────────────────────────────────────────────────────────────
 const S = {
   tab: 'painel',
+  periodo: 'mes',
   modal: null,
   modalData: {},
   ciclos: [],
@@ -214,10 +215,32 @@ function renderContent() {
 }
 
 // ─── PAINEL ──────────────────────────────────────────────────────────────────
-function renderPainel() {
+function getPeriodoLabel() {
+  if(S.periodo==='mes') return 'Mês Atual';
+  if(S.periodo==='trimestre') return 'Últimos 3 Meses';
+  if(S.periodo==='ano') return 'Ano Atual';
+  return 'Acumulado';
+}
+
+function filtrarPeriodo(arr) {
+  if(S.periodo==='acumulado') return arr;
   const mes = mesAtual();
-  const colMes = S.colheitas.filter(c=>mesDe(c.data)===mes);
-  const cusMes = S.custos.filter(c=>mesDe(c.data)===mes);
+  const [y,m] = mes.split('-').map(Number);
+  if(S.periodo==='mes') return arr.filter(c=>mesDe(c.data)===mes);
+  if(S.periodo==='ano') return arr.filter(c=>c.data&&c.data.startsWith(String(y)));
+  // trimestre: últimos 3 meses
+  const meses = [];
+  for(let i=0;i<3;i++){
+    let mm = m-i; let yy = y;
+    if(mm<=0){ mm+=12; yy--; }
+    meses.push(`${yy}-${String(mm).padStart(2,'0')}`);
+  }
+  return arr.filter(c=>meses.includes(mesDe(c.data)));
+}
+
+function renderPainel() {
+  const colMes = filtrarPeriodo(S.colheitas);
+  const cusMes = filtrarPeriodo(S.custos);
   const recM   = colMes.reduce((a,c)=>a+recMerc(c),0);
   const recC   = colMes.reduce((a,c)=>a+recCeasa(c),0);
   const rec    = recM+recC;
@@ -233,6 +256,12 @@ function renderPainel() {
   const ultimasCol = [...S.colheitas].sort((a,b)=>b.data.localeCompare(a.data)).slice(0,5);
 
   return `<div class="pad">
+    <div style="display:flex;gap:6px;margin-bottom:4px">
+      ${['mes','trimestre','ano','acumulado'].map(p=>`
+        <button data-periodo="${p}" style="flex:1;padding:8px 4px;border-radius:8px;border:1px solid ${S.periodo===p?'var(--green)':'var(--border)'};background:${S.periodo===p?'#16a34a22':'transparent'};color:${S.periodo===p?'var(--green)':'var(--muted)'};font-family:'DM Mono',monospace;font-size:10px;cursor:pointer;text-transform:uppercase;letter-spacing:.06em">
+          ${p==='mes'?'Mês':p==='trimestre'?'Trim.':p==='ano'?'Ano':'Total'}
+        </button>`).join('')}
+    </div>
     <div>
       <div class="card-title">Estufas</div>
       <div class="grid3">${Array.from({length:N_ESTUFAS},(_,i)=>{
@@ -743,6 +772,11 @@ function confirmar(msg, onSim) {
 }
 
 function attachEvents() {
+  // periodo filter
+  document.querySelectorAll('[data-periodo]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ S.periodo=btn.dataset.periodo; render(); });
+  });
+
   // nav
   document.querySelectorAll('[data-tab]').forEach(btn=>{
     btn.addEventListener('click',()=>{ S.tab=btn.dataset.tab; render(); });
