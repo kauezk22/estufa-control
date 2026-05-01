@@ -430,11 +430,20 @@ function renderEstufas() {
         </div>
 
         ${ci?`
-          <div class="grid2" style="margin-bottom:10px;font-size:11px">
+          <div class="grid2" style="margin-bottom:6px;font-size:11px">
             <div><span style="color:var(--muted)">Plantio:</span> <span style="color:var(--text)">${fmtD(ci.plantio)}</span></div>
             <div><span style="color:var(--muted)">Variedade:</span> <span style="color:var(--text)">${ci.variedade||'—'}</span></div>
-            <div><span style="color:var(--muted)">1ª colheita:</span> <span style="color:var(--text)">${ci.primeiraColheita?fmtD(ci.primeiraColheita):'não registrada'}</span></div>
             <div><span style="color:var(--muted)">Origem mudas:</span> <span style="color:var(--text)">${ci.origemMudas||'—'}</span></div>
+          </div>
+          <div class="grid2" style="margin-bottom:10px">
+            <div>
+              <label class="lbl">1ª Colheita</label>
+              <input type="date" data-ciclo-field="${ci.id}" data-field="primeiraColheita" value="${ci.primeiraColheita||''}" style="font-size:12px">
+            </div>
+            <div>
+              <label class="lbl">Última Colheita</label>
+              <input type="date" data-ciclo-field="${ci.id}" data-field="ultimaColheita" value="${ci.ultimaColheita||''}" style="font-size:12px">
+            </div>
           </div>
           <div class="row" style="margin-bottom:8px">
             <div style="font-size:11px;color:var(--muted)">${occs.length} ocorrência(s)</div>
@@ -747,6 +756,15 @@ function attachEvents() {
   const btnOcc = document.getElementById('btn-salvar-occ');
   if(btnOcc) btnOcc.addEventListener('click', salvarOcorrencia);
 
+  // editar campos do ciclo (1ª colheita, última colheita)
+  document.querySelectorAll('[data-ciclo-field]').forEach(input=>{
+    input.addEventListener('change', async ()=>{
+      const cicloId = input.dataset.cicloField;
+      const field   = input.dataset.field;
+      await updateDoc(doc(db,'ciclos',cicloId),{[field]: input.value||null});
+    });
+  });
+
   // deletar colheita
   document.querySelectorAll('[data-del-col]').forEach(btn=>{
     btn.addEventListener('click',()=>deleteDoc(doc(db,'colheitas',btn.dataset.delCol)));
@@ -861,14 +879,59 @@ async function salvarOcorrencia() {
   S.modal=null; render();
 }
 
+// ─── PIN Lock ────────────────────────────────────────────────────────────────
+const PIN = '2908';
+const PIN_KEY = 'estufa-pin-ok';
+
+function checkPin() {
+  return localStorage.getItem(PIN_KEY) === '1';
+}
+
+function renderPin(erro) {
+  document.getElementById('app').innerHTML = `
+    <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg);padding:32px">
+      <div style="font-size:20px;font-weight:500;color:var(--green);letter-spacing:.15em;margin-bottom:4px">ESTUFA</div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.15em;margin-bottom:40px">Controle Financeiro</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 24px;width:100%;max-width:280px">
+        <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:16px;text-transform:uppercase;letter-spacing:.1em">Digite o PIN</div>
+        <input type="password" inputmode="numeric" id="pin-input" maxlength="4"
+          style="text-align:center;font-size:28px;letter-spacing:.3em;padding:12px;margin-bottom:${erro?'8':'16'}px"
+          placeholder="····" autofocus>
+        ${erro?'<div style="font-size:11px;color:var(--red);text-align:center;margin-bottom:12px">PIN incorreto</div>':''}
+        <button class="btn btn-green" id="btn-pin">Entrar</button>
+      </div>
+    </div>`;
+  const input = document.getElementById('pin-input');
+  const btn   = document.getElementById('btn-pin');
+  const tentar = () => {
+    if(input.value === PIN){ localStorage.setItem(PIN_KEY,'1'); initApp(); }
+    else { input.value=''; renderPin(true); }
+  };
+  btn.addEventListener('click', tentar);
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter') tentar(); });
+}
+
+function initApp() {
+  S.ready = false;
+  render();
+  // start listeners
+  startListeners();
+}
+
 // ─── Firebase listeners ───────────────────────────────────────────────────────
 let readyCount = 0;
 function checkReady() { readyCount++; if(readyCount>=4){ S.ready=true; render(); } }
 
-onSnapshot(query(collection(db,'ciclos'),    orderBy('createdAt','desc')), snap=>{ S.ciclos     =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
-onSnapshot(query(collection(db,'colheitas'), orderBy('data','desc')),      snap=>{ S.colheitas  =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
-onSnapshot(query(collection(db,'custos'),    orderBy('data','desc')),      snap=>{ S.custos     =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
-onSnapshot(query(collection(db,'ocorrencias'),orderBy('data','desc')),     snap=>{ S.ocorrencias=snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
+function startListeners() {
+  readyCount = 0;
+  onSnapshot(query(collection(db,'ciclos'),     orderBy('createdAt','desc')), snap=>{ S.ciclos     =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
+  onSnapshot(query(collection(db,'colheitas'),  orderBy('data','desc')),      snap=>{ S.colheitas  =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
+  onSnapshot(query(collection(db,'custos'),     orderBy('data','desc')),      snap=>{ S.custos     =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
+  onSnapshot(query(collection(db,'ocorrencias'),orderBy('data','desc')),      snap=>{ S.ocorrencias=snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
+}
+
+// Boot
+if(checkPin()) { initApp(); } else { renderPin(false); }
 </script>
 </body>
 </html>
