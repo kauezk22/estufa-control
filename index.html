@@ -477,7 +477,10 @@ function renderEstufas() {
           <div class="grid2" style="margin-bottom:6px;font-size:11px">
             <div><span style="color:var(--muted)">Plantio:</span> <span style="color:var(--text)">${fmtD(ci.plantio)}</span></div>
             <div><span style="color:var(--muted)">Variedade:</span> <span style="color:var(--text)">${ci.variedade||'—'}</span></div>
-            <div><span style="color:var(--muted)">Origem mudas:</span> <span style="color:var(--text)">${ci.origemMudas||'—'}</span></div>
+            <div><span style="color:var(--muted)">Tipo:</span> <span style="color:var(--text)">${ci.tipoMuda==='porta-enxerto'?`Porta-enxerto${ci.portaEnxerto?' ('+ci.portaEnxerto+')':''}` :'Pé Franco'}</span></div>
+            ${ci.qtdMudas?`<div><span style="color:var(--muted)">Qtd mudas:</span> <span style="color:var(--text)">${ci.qtdMudas}</span></div>`:''}
+            ${ci.espacamento?`<div><span style="color:var(--muted)">Espaçamento:</span> <span style="color:var(--text)">${ci.espacamento}</span></div>`:''}
+            ${ci.semeio?`<div><span style="color:var(--muted)">Semeio:</span> <span style="color:var(--text)">${fmtD(ci.semeio)}</span></div>`:''}
           </div>
           <div class="grid2" style="margin-bottom:10px">
             <div>
@@ -713,9 +716,30 @@ function renderModal() {
 
   if(modal==='novo-ciclo') {
     body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Novo Ciclo — Estufa ${modalData.estufa}</div>
-      <div style="margin-bottom:8px"><label class="lbl">Data do Plantio</label><input type="date" id="m-plantio" value="${today()}"></div>
-      <div style="margin-bottom:8px"><label class="lbl">Variedade</label><input type="text" id="m-variedade" placeholder="ex: Alambra, Dominador"></div>
-      <div style="margin-bottom:8px"><label class="lbl">Origem das Mudas</label><input type="text" id="m-origem" placeholder="ex: Viveiro João, própria"></div>
+      <div class="grid2" style="margin-bottom:8px">
+        <div><label class="lbl">Data do Plantio</label><input type="date" id="m-plantio" value="${today()}"></div>
+        <div><label class="lbl">Semeio / Pedido Mudas</label><input type="date" id="m-semeio"></div>
+      </div>
+      <div style="margin-bottom:8px"><label class="lbl">Variedade</label><input type="text" id="m-variedade" placeholder="ex: Maserati, Dante"></div>
+      <div class="grid2" style="margin-bottom:8px">
+        <div><label class="lbl">Qtd. Mudas</label><input type="number" min="0" id="m-qtd-mudas" placeholder="ex: 1000"></div>
+        <div><label class="lbl">Espaçamento</label><input type="text" id="m-espacamento" placeholder="ex: 0,5 x 1,0m"></div>
+      </div>
+      <div style="margin-bottom:8px">
+        <label class="lbl">Tipo de Muda</label>
+        <div style="display:flex;gap:16px;margin-top:4px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="radio" name="m-tipo-muda" value="pe-franco" id="m-pe-franco" checked> Pé Franco
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="radio" name="m-tipo-muda" value="porta-enxerto" id="m-porta-enxerto"> Porta-enxerto
+          </label>
+        </div>
+      </div>
+      <div id="m-pe-box" style="display:none;margin-bottom:8px">
+        <label class="lbl">Qual Porta-enxerto</label>
+        <input type="text" id="m-pe-qual" placeholder="ex: Arnold, Maxifort">
+      </div>
       <div style="margin-bottom:16px"><label class="lbl">Observações</label><textarea id="m-obs" placeholder="..."></textarea></div>
       <button class="btn btn-green" id="btn-criar-ciclo">Abrir Ciclo</button>`;
   }
@@ -813,6 +837,14 @@ function attachEvents() {
     btn.addEventListener('click',()=>{ S.modal='nova-occ'; S.modalData={cicloId:btn.dataset.novaOcc, estufa:+btn.dataset.occEstufa}; render(); });
   });
 
+  // tipo muda radio toggle
+  document.querySelectorAll('input[name="m-tipo-muda"]').forEach(r=>{
+    r.addEventListener('change',()=>{
+      const box = document.getElementById('m-pe-box');
+      if(box) box.style.display = r.value==='porta-enxerto'&&r.checked?'block':'none';
+    });
+  });
+
   // modal actions
   const btnCriarCiclo = document.getElementById('btn-criar-ciclo');
   if(btnCriarCiclo) btnCriarCiclo.addEventListener('click', criarCiclo);
@@ -903,14 +935,19 @@ async function criarCiclo() {
   const plantio = document.getElementById('m-plantio')?.value;
   if(!plantio) return;
   const estufa = S.modalData.estufa;
-  const variedade = document.getElementById('m-variedade')?.value||'';
-  const origemMudas = document.getElementById('m-origem')?.value||'';
-  const obs = document.getElementById('m-obs')?.value||'';
+  const variedade    = document.getElementById('m-variedade')?.value||'';
+  const semeio       = document.getElementById('m-semeio')?.value||null;
+  const qtdMudas     = +document.getElementById('m-qtd-mudas')?.value||null;
+  const espacamento  = document.getElementById('m-espacamento')?.value||'';
+  const tipoMuda     = document.querySelector('input[name="m-tipo-muda"]:checked')?.value||'pe-franco';
+  const portaEnxerto = tipoMuda==='porta-enxerto'?(document.getElementById('m-pe-qual')?.value||''):'';
+  const obs          = document.getElementById('m-obs')?.value||'';
   S.modal=null; render();
   const anterior = cicloAtivo(estufa);
   if(anterior) await updateDoc(doc(db,'ciclos',anterior.id),{encerrado:true, encerradoEm:today()});
   await addDoc(collection(db,'ciclos'),{
-    estufa, plantio, variedade, origemMudas, obs,
+    estufa, plantio, variedade, semeio, qtdMudas, espacamento,
+    tipoMuda, portaEnxerto, obs,
     encerrado: false,
     primeiraColheita: null,
     ultimaColheita: null,
