@@ -424,7 +424,7 @@ function renderCustos() {
         <label class="lbl">Subcategoria</label>
         <select id="cus-subcat">${CAT_CUSTOS[CAT_INSUMOS[0]].map(s=>`<option>${s}</option>`).join('')}</select>
       </div>
-      <div style="margin-bottom:8px"><label class="lbl">Descrição (opcional)</label><input type="text" id="cus-desc" placeholder="ex: Verango Prime Bayer 1L" required></div>
+      <div style="margin-bottom:8px"><label class="lbl">Descrição</label><input type="text" id="cus-desc" placeholder="ex: Verango Prime Bayer 1L" required></div>
       <div style="margin-bottom:12px"><label class="lbl">Valor (R$)</label><input type="number" min="0" step="0.01" id="cus-val" placeholder="0,00"></div>
       <button class="btn btn-red" id="btn-salvar-cus">Registrar Custo</button>
     </div>
