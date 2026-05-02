@@ -723,18 +723,32 @@ function renderLinhaPreco(pts, color) {
 function calcAlocacao() {
   const colheitas = S.colheitas;
   if(colheitas.length===0) return [];
-  const estufaDias = {};
-  S.ciclos.forEach(ci=>{
-    if(!ci.primeiraColheita) return;
-    const fim = ci.ultimaColheita || ci.encerradoEm || today();
-    const dias = Math.max(1, diasEntre(ci.primeiraColheita, fim));
-    estufaDias[ci.estufa] = (estufaDias[ci.estufa]||0) + dias;
+
+  // Para cada colheita, identifica estufas ativas naquele dia
+  // (entre primeiraColheita e ultimaColheita do ciclo)
+  // Só usa ciclos que têm AMBAS as datas preenchidas ou ciclo ativo com primeiraColheita
+  const estufaCaixas = {};
+  colheitas.forEach(col=>{
+    const dia = col.data;
+    const estufasAtivas = S.ciclos.filter(ci=>{
+      if(!ci.primeiraColheita) return false;
+      const inicio = ci.primeiraColheita;
+      // ciclo ativo sem ultima colheita: considera ativo até hoje
+      const fim = ci.ultimaColheita || (!ci.encerrado ? today() : null);
+      if(!fim) return false;
+      return dia >= inicio && dia <= fim;
+    });
+    if(estufasAtivas.length===0) return;
+    const cxPorEstufa = cxTotal(col) / estufasAtivas.length;
+    estufasAtivas.forEach(ci=>{
+      estufaCaixas[ci.estufa] = (estufaCaixas[ci.estufa]||0) + cxPorEstufa;
+    });
   });
-  const totalDias = Object.values(estufaDias).reduce((a,v)=>a+v,0);
-  if(!totalDias) return [];
-  const totalCx = colheitas.reduce((a,c)=>a+cxTotal(c),0);
-  return Object.entries(estufaDias)
-    .map(([e,d])=>({estufa:+e,dias:d,pct:d/totalDias*100,caixas:totalCx*d/totalDias}))
+
+  const totalCx = Object.values(estufaCaixas).reduce((a,v)=>a+v,0);
+  if(!totalCx) return [];
+  return Object.entries(estufaCaixas)
+    .map(([e,cx])=>({estufa:+e, caixas:cx, pct:cx/totalCx*100}))
     .sort((a,b)=>b.caixas-a.caixas);
 }
 
