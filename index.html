@@ -529,10 +529,7 @@ function renderEstufas() {
                   <div><label class="lbl">1ª Colheita</label><input type="date" data-ciclo-field="${h.id}" data-field="primeiraColheita" value="${h.primeiraColheita||''}" style="font-size:12px"></div>
                   <div><label class="lbl">Última Colheita</label><input type="date" data-ciclo-field="${h.id}" data-field="ultimaColheita" value="${h.ultimaColheita||''}" style="font-size:12px"></div>
                 </div>
-                <div class="grid2" style="margin-bottom:6px">
-                  <div><label class="lbl">Encerrado em</label><input type="date" data-ciclo-field="${h.id}" data-field="encerradoEm" value="${h.encerradoEm||''}" style="font-size:12px"></div>
-                  <div><label class="lbl">Plantio</label><input type="date" data-ciclo-field="${h.id}" data-field="plantio" value="${h.plantio||''}" style="font-size:12px"></div>
-                </div>
+
                 ${h.obs?`<div style="font-size:10px;color:var(--muted);margin-bottom:6px">${h.obs}</div>`:''}
                 ${hOccs.length>0?`<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">${hOccs.length} ocorrência(s)</div>
                   ${hOccs.map(o=>`<div style="font-size:10px;padding:4px 0;border-top:1px solid var(--border)">
