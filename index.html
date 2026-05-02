@@ -523,9 +523,15 @@ function renderEstufas() {
                   ${h.tipoMuda?`<div><span style="color:var(--muted)">Tipo:</span> <span style="color:var(--text)">${h.tipoMuda==='porta-enxerto'?'Porta-enxerto':'Pé Franco'}${h.portaEnxerto?' ('+h.portaEnxerto+')':''}</span></div>`:''}
                   ${h.qtdMudas?`<div><span style="color:var(--muted)">Mudas:</span> <span style="color:var(--text)">${h.qtdMudas}</span></div>`:''}
                   ${h.espacamento?`<div><span style="color:var(--muted)">Espaçamento:</span> <span style="color:var(--text)">${h.espacamento}</span></div>`:''}
-                  ${h.primeiraColheita?`<div><span style="color:var(--muted)">1ª colheita:</span> <span style="color:var(--text)">${fmtD(h.primeiraColheita)}</span></div>`:''}
-                  ${h.ultimaColheita?`<div><span style="color:var(--muted)">Última col.:</span> <span style="color:var(--text)">${fmtD(h.ultimaColheita)}</span></div>`:''}
                   ${h.semeio?`<div><span style="color:var(--muted)">Semeio:</span> <span style="color:var(--text)">${fmtD(h.semeio)}</span></div>`:''}
+                </div>
+                <div class="grid2" style="margin-bottom:6px">
+                  <div><label class="lbl">1ª Colheita</label><input type="date" data-ciclo-field="${h.id}" data-field="primeiraColheita" value="${h.primeiraColheita||''}" style="font-size:12px"></div>
+                  <div><label class="lbl">Última Colheita</label><input type="date" data-ciclo-field="${h.id}" data-field="ultimaColheita" value="${h.ultimaColheita||''}" style="font-size:12px"></div>
+                </div>
+                <div class="grid2" style="margin-bottom:6px">
+                  <div><label class="lbl">Encerrado em</label><input type="date" data-ciclo-field="${h.id}" data-field="encerradoEm" value="${h.encerradoEm||''}" style="font-size:12px"></div>
+                  <div><label class="lbl">Plantio</label><input type="date" data-ciclo-field="${h.id}" data-field="plantio" value="${h.plantio||''}" style="font-size:12px"></div>
                 </div>
                 ${h.obs?`<div style="font-size:10px;color:var(--muted);margin-bottom:6px">${h.obs}</div>`:''}
                 ${hOccs.length>0?`<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">${hOccs.length} ocorrência(s)</div>
