@@ -528,7 +528,7 @@ function renderEstufas() {
               const hOccs = S.ocorrencias.filter(o=>o.cicloId===h.id);
               return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
                 <div class="row" style="margin-bottom:6px">
-                  <div style="color:var(--greenD);font-size:12px;font-weight:500">${fmtD(h.plantio)} → ${fmtD(h.encerradoEm)}</div>
+                  <div style="color:var(--greenD);font-size:12px;font-weight:500">${fmtD(h.plantio)}${h.ultimaColheita?" → "+fmtD(h.ultimaColheita):""}</div>
                   <button class="btn-danger" data-del-ciclo="${h.id}">✕</button>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;margin-bottom:6px">
