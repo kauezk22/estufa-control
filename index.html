@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Estufa · Controle</title>
+<title>Estufa · Gestão</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -81,6 +81,10 @@ textarea{resize:vertical;min-height:60px}
 .loading{height:100vh;display:flex;align-items:center;justify-content:center;color:var(--green);font-size:13px}
 .empty{text-align:center;padding:32px;color:var(--muted);font-size:12px;line-height:1.8}
 input[type=number]::-webkit-inner-spin-button{opacity:.3}
+.confirm-overlay{position:fixed;inset:0;background:#000000cc;z-index:300;display:flex;align-items:center;justify-content:center;padding:24px}
+.confirm-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:280px;text-align:center}
+.confirm-msg{font-size:13px;color:var(--text);margin-bottom:20px;line-height:1.6}
+.confirm-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 ::-webkit-scrollbar{width:3px}
 ::-webkit-scrollbar-thumb{background:#1e3a1e;border-radius:2px}
 </style>
@@ -98,7 +102,7 @@ import {
 // ─── Firebase Config ──────────────────────────────────────────────────────────
 const app = initializeApp({
   apiKey: "AIzaSyD5O_BKJW3gAne5uxGxvLffGnuY0tpH-hU",
-  authDomain: "estufa-control.firebaseapp.com",
+  authDomain: "estufa-gestao.firebaseapp.com",
   projectId: "estufa-control",
   storageBucket: "estufa-control.firebasestorage.app",
   messagingSenderId: "1034393767324",
@@ -108,19 +112,25 @@ const db = getFirestore(app);
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const N_ESTUFAS = 6;
-const CAT_INSUMOS = [
-  'Mudas','Esterco','Condicionador de Solo','Gesso Agrícola','Calcário',
-  'Fertilizantes Sais','Fertilizantes Orgânicos','Fertilizantes Foliares',
-  'Inseticidas','Herbicidas','Fungicidas','Nematicidas','Nematicida Biológico',
-  'Adjuvantes/Espalhantes','Fitilhos','EPIs','Gasolina e Óleo 2T',
-  'Manutenção Estufas','Manutenção Equipamentos','Energia','Mão de Obra','Outros'
-];
+const CAT_CUSTOS = {
+  'Defensivos':        ['Inseticida','Herbicida','Fungicida','Nematicida Químico','Nematicida Biológico','Adjuvante/Espalhante'],
+  'Fertilizantes':     ['Sais','Orgânico','Foliar'],
+  'Corretivos Solo':   ['Esterco','Condicionador de Solo','Gesso Agrícola','Calcário'],
+  'Biológicos Solo':   ['EM1','Trichoderma','Solubilizador de Fósforo','Outros'],
+  'Mudas':             ['Pé Franco','Porta-enxerto'],
+  'Insumos Gerais':    ['Fitilhos','EPIs','Gasolina e Óleo 2T'],
+  'Manutenção':        ['Estufas','Equipamentos'],
+  'Fixos':             ['Energia','Mão de Obra'],
+  'Financeiro':        ['Retirada Sócios','Outros'],
+};
+const CAT_INSUMOS = Object.keys(CAT_CUSTOS);
 const TIPOS_OCC = ['Doença','Praga','Deficiência Nutricional','Problema Estrutural','Outro'];
 const SEV = ['leve','moderada','grave'];
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const S = {
   tab: 'painel',
+  periodo: 'mes',
   modal: null,
   modalData: {},
   ciclos: [],
@@ -136,7 +146,8 @@ const today = () => new Date().toISOString().slice(0,10);
 const fmt$ = n => (+n||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:2});
 const fmtD = s => s ? s.slice(0,10).split('-').reverse().join('/') : '—';
 const fmtMes = s => { const [y,m]=s.split('-'); const ms=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']; return ms[+m-1]+'/'+y.slice(2); };
-const diasEntre = (a,b) => Math.round((new Date(b)-new Date(a))/864e5);
+const parseDate = s => { const [y,m,d]=s.split('-').map(Number); return Date.UTC(y,m-1,d); };
+const diasEntre = (a,b) => Math.round((parseDate(b)-parseDate(a))/864e5);
 const diasDesde = s => { if(!s)return null; return diasEntre(s, today()); };
 const mesDe = s => s ? s.slice(0,7) : '';
 const mesAtual = () => today().slice(0,7);
@@ -179,7 +190,7 @@ function render() {
 function renderHeader() {
   const d = new Date().toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short'});
   return `<div class="header">
-    <div><div class="header-title">ESTUFA</div><div class="header-sub">Controle Financeiro</div></div>
+    <div><div class="header-title">ESTUFA</div><div class="header-sub">Gestão da Operação</div></div>
     <div class="header-date">${d}</div>
   </div>`;
 }
@@ -210,10 +221,32 @@ function renderContent() {
 }
 
 // ─── PAINEL ──────────────────────────────────────────────────────────────────
-function renderPainel() {
+function getPeriodoLabel() {
+  if(S.periodo==='mes') return 'Mês Atual';
+  if(S.periodo==='trimestre') return 'Últimos 3 Meses';
+  if(S.periodo==='ano') return 'Ano Atual';
+  return 'Acumulado';
+}
+
+function filtrarPeriodo(arr) {
+  if(S.periodo==='acumulado') return arr;
   const mes = mesAtual();
-  const colMes = S.colheitas.filter(c=>mesDe(c.data)===mes);
-  const cusMes = S.custos.filter(c=>mesDe(c.data)===mes);
+  const [y,m] = mes.split('-').map(Number);
+  if(S.periodo==='mes') return arr.filter(c=>mesDe(c.data)===mes);
+  if(S.periodo==='ano') return arr.filter(c=>c.data&&c.data.startsWith(String(y)));
+  // trimestre: últimos 3 meses
+  const meses = [];
+  for(let i=0;i<3;i++){
+    let mm = m-i; let yy = y;
+    if(mm<=0){ mm+=12; yy--; }
+    meses.push(`${yy}-${String(mm).padStart(2,'0')}`);
+  }
+  return arr.filter(c=>meses.includes(mesDe(c.data)));
+}
+
+function renderPainel() {
+  const colMes = filtrarPeriodo(S.colheitas);
+  const cusMes = filtrarPeriodo(S.custos);
   const recM   = colMes.reduce((a,c)=>a+recMerc(c),0);
   const recC   = colMes.reduce((a,c)=>a+recCeasa(c),0);
   const rec    = recM+recC;
@@ -229,6 +262,12 @@ function renderPainel() {
   const ultimasCol = [...S.colheitas].sort((a,b)=>b.data.localeCompare(a.data)).slice(0,5);
 
   return `<div class="pad">
+    <div style="display:flex;gap:6px;margin-bottom:4px">
+      ${['mes','trimestre','ano','acumulado'].map(p=>`
+        <button data-periodo="${p}" style="flex:1;padding:8px 4px;border-radius:8px;border:1px solid ${S.periodo===p?'var(--green)':'var(--border)'};background:${S.periodo===p?'#16a34a22':'transparent'};color:${S.periodo===p?'var(--green)':'var(--muted)'};font-family:'DM Mono',monospace;font-size:10px;cursor:pointer;text-transform:uppercase;letter-spacing:.06em">
+          ${p==='mes'?'Mês':p==='trimestre'?'Trim.':p==='ano'?'Ano':'Total'}
+        </button>`).join('')}
+    </div>
     <div>
       <div class="card-title">Estufas</div>
       <div class="grid3">${Array.from({length:N_ESTUFAS},(_,i)=>{
@@ -246,16 +285,16 @@ function renderPainel() {
     </div>
 
     <div class="grid2">
-      ${metric('Receita mês',fmt$(rec),'var(--green)')}
+      ${metric(`Receita — ${getPeriodoLabel()}`,fmt$(rec),'var(--green)')}
       ${metric('Resultado',fmt$(res),res>=0?'var(--green)':'var(--red)')}
       ${metric('Mercado',fmt$(recM),'var(--blue)',rec>0?`${(recM/rec*100).toFixed(0)}% da receita`:'')}
       ${metric('CEASA',fmt$(recC),'var(--amber)',rec>0?`${(recC/rec*100).toFixed(0)}% da receita`:'')}
-      ${metric('Custos mês',fmt$(cus),'var(--orange)')}
+      ${metric(`Custos — ${getPeriodoLabel()}`,fmt$(cus),'var(--orange)')}
       ${metric('Margem',`${mar.toFixed(1)}%`,mar>=0?'var(--green)':'var(--red)')}
     </div>
 
     <div class="card">
-      <div class="card-title">Caixas — Mês Atual</div>
+      <div class="card-title">Caixas — ${getPeriodoLabel()}</div>
       <div style="margin-bottom:10px">
         <div style="font-size:9px;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Supermercado</div>
         <span style="font-size:24px;font-weight:500;color:var(--blue)">${tMG}</span>
@@ -266,6 +305,17 @@ function renderPainel() {
         <div class="grid3" style="text-align:center">
           ${[['Graúdo',tCG,'var(--green)'],['Médio',tCM,'var(--greenD)'],['Miúdo',tCmi,'var(--amber)']].map(([n,v,c])=>`
             <div><div style="font-size:20px;font-weight:500;color:${c}">${v}</div><div style="font-size:9px;color:var(--muted);margin-top:2px">${n}</div></div>`).join('')}
+        </div>
+      </div>
+      <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Total geral (Mercado + CEASA)</div>
+        <div class="grid3" style="text-align:center">
+          ${(()=>{ const tot=(tMG+tCG)+tCM+tCmi||1; return [['Graúdo',tMG+tCG,'var(--green)'],['Médio',tCM,'var(--greenD)'],['Miúdo',tCmi,'var(--amber)']].map(([n,v,c])=>`
+            <div>
+              <div style="font-size:20px;font-weight:500;color:${c}">${v}</div>
+              <div style="font-size:10px;color:${c};margin-top:1px">${(v/tot*100).toFixed(0)}%</div>
+              <div style="font-size:9px;color:var(--muted);margin-top:1px">${n}</div>
+            </div>`).join(''); })()}
         </div>
       </div>
     </div>
@@ -340,6 +390,7 @@ function renderColheita() {
             <div style="font-size:13px;font-weight:500;color:var(--text)">${fmtD(c.data)}</div>
             <div class="row" style="gap:8px">
               <div style="font-size:14px;color:var(--green);font-weight:500">${fmt$(recTotal(c))}</div>
+              <button class="btn-danger" style="background:#0a2a0a;color:var(--blue)" data-edit-col="${c.id}">✎</button>
               <button class="btn-danger" data-del-col="${c.id}">✕</button>
             </div>
           </div>
@@ -356,7 +407,12 @@ function renderCustos() {
   const cusMes = S.custos.filter(c=>mesDe(c.data)===mes);
   const totalMes = cusMes.reduce((a,c)=>a+c.valor,0);
   const porCat = CAT_INSUMOS
-    .map(cat=>({cat,total:cusMes.filter(c=>c.categoria===cat).reduce((a,c)=>a+c.valor,0)}))
+    .map(cat=>{
+      const subs = (CAT_CUSTOS[cat]||[]).map(sub=>({
+        sub, total: cusMes.filter(c=>c.categoria===cat&&c.subcategoria===sub).reduce((a,c)=>a+c.valor,0)
+      })).filter(x=>x.total>0);
+      return {cat, total:cusMes.filter(c=>c.categoria===cat).reduce((a,c)=>a+c.valor,0), subs};
+    })
     .filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
   const recentes = [...S.custos].sort((a,b)=>b.data.localeCompare(a.data));
 
@@ -367,7 +423,11 @@ function renderCustos() {
         <div><label class="lbl">Data</label><input type="date" id="cus-data" value="${today()}"></div>
         <div><label class="lbl">Categoria</label><select id="cus-cat">${CAT_INSUMOS.map(c=>`<option>${c}</option>`).join('')}</select></div>
       </div>
-      <div style="margin-bottom:8px"><label class="lbl">Descrição (opcional)</label><input type="text" id="cus-desc" placeholder="ex: NPK 20-20-20, 50kg"></div>
+      <div style="margin-bottom:8px">
+        <label class="lbl">Subcategoria</label>
+        <select id="cus-subcat">${CAT_CUSTOS[CAT_INSUMOS[0]].map(s=>`<option>${s}</option>`).join('')}</select>
+      </div>
+      <div style="margin-bottom:8px"><label class="lbl">Descrição</label><input type="text" id="cus-desc" placeholder="ex: Verango Prime Bayer 1L" required></div>
       <div style="margin-bottom:12px"><label class="lbl">Valor (R$)</label><input type="number" min="0" step="0.01" id="cus-val" placeholder="0,00"></div>
       <button class="btn btn-red" id="btn-salvar-cus">Registrar Custo</button>
     </div>
@@ -397,10 +457,11 @@ function renderCustos() {
         <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)">
           <div style="flex:1;min-width:0;margin-right:8px">
             <div style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.descricao||c.categoria}</div>
-            <div style="font-size:10px;color:var(--muted)">${fmtD(c.data)} · ${c.categoria}</div>
+            <div style="font-size:10px;color:var(--muted)">${fmtD(c.data)} · ${c.categoria}${c.subcategoria?" › "+c.subcategoria:""}</div>
           </div>
           <div class="row" style="gap:8px;flex-shrink:0">
             <div style="font-size:13px;color:var(--orange);font-weight:500">${fmt$(c.valor)}</div>
+            <button class="btn-danger" style="background:#0a2a0a;color:var(--blue)" data-edit-cus="${c.id}">✎</button>
             <button class="btn-danger" data-del-cus="${c.id}">✕</button>
           </div>
         </div>`).join('')}
@@ -424,17 +485,30 @@ function renderEstufas() {
           <div style="font-size:14px;font-weight:500;color:${ci?fase.color:'var(--muted)'}">Estufa ${e}</div>
           <div class="row" style="gap:6px">
             ${ci?`<span class="badge" style="background:${fase.ring}55;color:${fase.color}">${fase.label} · ${dias}d</span>`:''}
+            ${ci?`<button class="btn btn-ghost btn-sm" data-editar-ciclo="${ci.id}" data-editar-ciclo-estufa="${e}">✎</button>`:''}
             ${ci?`<button class="btn btn-ghost btn-sm" data-encerrar="${ci.id}">Encerrar</button>`:''}
             <button class="btn btn-green btn-sm" data-novo-ciclo="${e}">+ Ciclo</button>
           </div>
         </div>
 
         ${ci?`
-          <div class="grid2" style="margin-bottom:10px;font-size:11px">
+          <div class="grid2" style="margin-bottom:6px;font-size:11px">
             <div><span style="color:var(--muted)">Plantio:</span> <span style="color:var(--text)">${fmtD(ci.plantio)}</span></div>
             <div><span style="color:var(--muted)">Variedade:</span> <span style="color:var(--text)">${ci.variedade||'—'}</span></div>
-            <div><span style="color:var(--muted)">1ª colheita:</span> <span style="color:var(--text)">${ci.primeiraColheita?fmtD(ci.primeiraColheita):'não registrada'}</span></div>
-            <div><span style="color:var(--muted)">Origem mudas:</span> <span style="color:var(--text)">${ci.origemMudas||'—'}</span></div>
+            <div><span style="color:var(--muted)">Tipo:</span> <span style="color:var(--text)">${ci.tipoMuda==='porta-enxerto'?`Porta-enxerto${ci.portaEnxerto?' ('+ci.portaEnxerto+')':''}` :'Pé Franco'}</span></div>
+            ${ci.qtdMudas?`<div><span style="color:var(--muted)">Qtd mudas:</span> <span style="color:var(--text)">${ci.qtdMudas}</span></div>`:''}
+            ${ci.espacamento?`<div><span style="color:var(--muted)">Espaçamento:</span> <span style="color:var(--text)">${ci.espacamento}</span></div>`:''}
+            ${ci.semeio?`<div><span style="color:var(--muted)">Semeio:</span> <span style="color:var(--text)">${fmtD(ci.semeio)}</span></div>`:''}
+          </div>
+          <div class="grid2" style="margin-bottom:10px">
+            <div>
+              <label class="lbl">1ª Colheita</label>
+              <input type="date" data-ciclo-field="${ci.id}" data-field="primeiraColheita" value="${ci.primeiraColheita||''}" style="font-size:12px">
+            </div>
+            <div>
+              <label class="lbl">Última Colheita</label>
+              <input type="date" data-ciclo-field="${ci.id}" data-field="ultimaColheita" value="${ci.ultimaColheita||''}" style="font-size:12px">
+            </div>
           </div>
           <div class="row" style="margin-bottom:8px">
             <div style="font-size:11px;color:var(--muted)">${occs.length} ocorrência(s)</div>
@@ -444,7 +518,10 @@ function renderEstufas() {
             <div class="occ-item">
               <div class="row">
                 <div style="font-size:11px;color:var(--text)">${o.tipo} — <span class="severity-${o.severidade}">${o.severidade}</span></div>
-                <div style="font-size:10px;color:var(--muted)">${fmtD(o.data)}</div>
+                <div class="row" style="gap:6px">
+                  <div style="font-size:10px;color:var(--muted)">${fmtD(o.data)}</div>
+                  <button class="btn-danger" style="background:#0a2a0a;color:var(--blue);font-size:10px" data-edit-occ="${o.id}">✎</button>
+                </div>
               </div>
               <div style="font-size:11px;color:var(--greenD);margin-top:2px">${o.descricao}</div>
               ${o.produto?`<div style="font-size:10px;color:var(--muted);margin-top:1px">Produto: ${o.produto}${o.dose?' — '+o.dose:''}</div>`:''}
@@ -455,14 +532,36 @@ function renderEstufas() {
         ${historico.length>0?`
           <div style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
             <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">Histórico (${historico.length} ciclo${historico.length>1?'s':''})</div>
-            ${historico.map(h=>`
-              <div style="font-size:11px;padding:6px 0;border-bottom:1px solid var(--border)">
-                <div class="row">
-                  <div style="color:var(--greenD)">${fmtD(h.plantio)} → ${fmtD(h.encerradoEm)}</div>
-                  <div style="color:var(--muted)">${h.variedade||''}</div>
+            ${historico.map(h=>{
+              const hOccs = S.ocorrencias.filter(o=>o.cicloId===h.id);
+              return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+                <div class="row" style="margin-bottom:6px">
+                  <div style="color:var(--greenD);font-size:12px;font-weight:500">${fmtD(h.plantio)}${h.ultimaColheita?" → "+fmtD(h.ultimaColheita):""}</div>
+                  <button class="btn-danger" data-del-ciclo="${h.id}">✕</button>
                 </div>
-                ${h.obs?`<div style="color:var(--muted);font-size:10px;margin-top:2px">${h.obs}</div>`:''}
-              </div>`).join('')}
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;margin-bottom:6px">
+                  ${h.variedade?`<div><span style="color:var(--muted)">Variedade:</span> <span style="color:var(--text)">${h.variedade}</span></div>`:''}
+                  ${h.tipoMuda?`<div><span style="color:var(--muted)">Tipo:</span> <span style="color:var(--text)">${h.tipoMuda==='porta-enxerto'?'Porta-enxerto':'Pé Franco'}${h.portaEnxerto?' ('+h.portaEnxerto+')':''}</span></div>`:''}
+                  ${h.qtdMudas?`<div><span style="color:var(--muted)">Mudas:</span> <span style="color:var(--text)">${h.qtdMudas}</span></div>`:''}
+                  ${h.espacamento?`<div><span style="color:var(--muted)">Espaçamento:</span> <span style="color:var(--text)">${h.espacamento}</span></div>`:''}
+                  ${h.semeio?`<div><span style="color:var(--muted)">Semeio:</span> <span style="color:var(--text)">${fmtD(h.semeio)}</span></div>`:''}
+                </div>
+                <div class="grid2" style="margin-bottom:6px">
+                  <div><label class="lbl">1ª Colheita</label><input type="date" data-ciclo-field="${h.id}" data-field="primeiraColheita" value="${h.primeiraColheita||''}" style="font-size:12px"></div>
+                  <div><label class="lbl">Última Colheita</label><input type="date" data-ciclo-field="${h.id}" data-field="ultimaColheita" value="${h.ultimaColheita||''}" style="font-size:12px"></div>
+                </div>
+
+                ${h.obs?`<div style="font-size:10px;color:var(--muted);margin-bottom:6px">${h.obs}</div>`:''}
+                ${hOccs.length>0?`<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">${hOccs.length} ocorrência(s)</div>
+                  ${hOccs.map(o=>`<div style="font-size:10px;padding:4px 0;border-top:1px solid var(--border)">
+                    <div class="row">
+                      <div><span style="color:var(--text)">${o.tipo}</span> — <span class="severity-${o.severidade}">${o.severidade}</span> — <span style="color:var(--muted)">${fmtD(o.data)}</span></div>
+                      <button class="btn-danger" style="background:#0a2a0a;color:var(--blue);font-size:10px" data-edit-occ="${o.id}">✎</button>
+                    </div>
+                    <div style="color:var(--greenD)">${o.descricao}${o.produto?' · '+o.produto:''}</div>
+                  </div>`).join('')}`:''}
+              </div>`;
+            }).join('')}
           </div>`:''}
       </div>`;
     }).join('')}
@@ -635,18 +734,32 @@ function renderLinhaPreco(pts, color) {
 function calcAlocacao() {
   const colheitas = S.colheitas;
   if(colheitas.length===0) return [];
-  const estufaDias = {};
-  S.ciclos.forEach(ci=>{
-    if(!ci.primeiraColheita) return;
-    const fim = ci.ultimaColheita || ci.encerradoEm || today();
-    const dias = Math.max(1, diasEntre(ci.primeiraColheita, fim));
-    estufaDias[ci.estufa] = (estufaDias[ci.estufa]||0) + dias;
+
+  // Para cada colheita, identifica estufas ativas naquele dia
+  // (entre primeiraColheita e ultimaColheita do ciclo)
+  // Só usa ciclos que têm AMBAS as datas preenchidas ou ciclo ativo com primeiraColheita
+  const estufaCaixas = {};
+  colheitas.forEach(col=>{
+    const dia = col.data;
+    const estufasAtivas = S.ciclos.filter(ci=>{
+      if(!ci.primeiraColheita) return false;
+      const inicio = ci.primeiraColheita;
+      // ciclo ativo sem ultima colheita: considera ativo até hoje
+      const fim = ci.ultimaColheita || (!ci.encerrado ? today() : null);
+      if(!fim) return false;
+      return dia >= inicio && dia <= fim;
+    });
+    if(estufasAtivas.length===0) return;
+    const cxPorEstufa = cxTotal(col) / estufasAtivas.length;
+    estufasAtivas.forEach(ci=>{
+      estufaCaixas[ci.estufa] = (estufaCaixas[ci.estufa]||0) + cxPorEstufa;
+    });
   });
-  const totalDias = Object.values(estufaDias).reduce((a,v)=>a+v,0);
-  if(!totalDias) return [];
-  const totalCx = colheitas.reduce((a,c)=>a+cxTotal(c),0);
-  return Object.entries(estufaDias)
-    .map(([e,d])=>({estufa:+e,dias:d,pct:d/totalDias*100,caixas:totalCx*d/totalDias}))
+
+  const totalCx = Object.values(estufaCaixas).reduce((a,v)=>a+v,0);
+  if(!totalCx) return [];
+  return Object.entries(estufaCaixas)
+    .map(([e,cx])=>({estufa:+e, caixas:cx, pct:cx/totalCx*100}))
     .sort((a,b)=>b.caixas-a.caixas);
 }
 
@@ -655,21 +768,138 @@ function renderModal() {
   const {modal, modalData} = S;
   let body = '';
 
+  if(modal==='editar-col') {
+    const c = S.colheitas.find(x=>x.id===modalData.colId)||{};
+    body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Editar Colheita</div>
+      <div style="margin-bottom:10px"><label class="lbl">Data</label><input type="date" id="ec-data" value="${c.data||today()}"></div>
+      <div class="section-box section-merc">
+        <div style="font-size:11px;font-weight:500;color:var(--blue);margin-bottom:10px;text-transform:uppercase;letter-spacing:.08em">Supermercado</div>
+        <div style="display:grid;grid-template-columns:72px 1fr 1fr;gap:8px;align-items:end">
+          <div style="font-size:12px;color:var(--green);font-weight:500;padding-bottom:9px">Graúdo</div>
+          <div><label class="lbl">Caixas</label><input type="number" min="0" id="ec-merc-g-q" value="${c.merc_g_q||0}"></div>
+          <div><label class="lbl">R$/cx</label><input type="number" min="0" step="0.01" id="ec-merc-g-p" value="${c.merc_g_p||0}"></div>
+        </div>
+      </div>
+      <div class="section-box section-ceasa">
+        <div style="font-size:11px;font-weight:500;color:var(--amber);margin-bottom:10px;text-transform:uppercase;letter-spacing:.08em">CEASA</div>
+        ${[['Graúdo','var(--green)','ec-cea-g',c.cea_g_q||0,c.cea_g_p||0],['Médio','var(--greenD)','ec-cea-m',c.cea_m_q||0,c.cea_m_p||0],['Miúdo','var(--amber)','ec-cea-mi',c.cea_mi_q||0,c.cea_mi_p||0]].map(([lbl,col,id,q,p])=>`
+          <div style="display:grid;grid-template-columns:72px 1fr 1fr;gap:8px;align-items:end;margin-bottom:8px">
+            <div style="font-size:12px;color:${col};font-weight:500;padding-bottom:9px">${lbl}</div>
+            <div><label class="lbl">Caixas</label><input type="number" min="0" id="${id}-q" value="${q}"></div>
+            <div><label class="lbl">R$/cx</label><input type="number" min="0" step="0.01" id="${id}-p" value="${p}"></div>
+          </div>`).join('')}
+      </div>
+      <button class="btn btn-green" id="btn-salvar-edit-col">Salvar Alterações</button>`;
+  }
+
+  if(modal==='editar-cus') {
+    const c = S.custos.find(x=>x.id===modalData.cusId)||{};
+    const cat = c.categoria||CAT_INSUMOS[0];
+    const subs = CAT_CUSTOS[cat]||[];
+    body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Editar Custo</div>
+      <div class="grid2" style="margin-bottom:8px">
+        <div><label class="lbl">Data</label><input type="date" id="ec-cus-data" value="${c.data||today()}"></div>
+        <div><label class="lbl">Categoria</label><select id="ec-cus-cat">${CAT_INSUMOS.map(x=>`<option${x===cat?' selected':''}>${x}</option>`).join('')}</select></div>
+      </div>
+      <div style="margin-bottom:8px">
+        <label class="lbl">Subcategoria</label>
+        <select id="ec-cus-subcat">${subs.map(s=>`<option${s===c.subcategoria?' selected':''}>${s}</option>`).join('')}</select>
+      </div>
+      <div style="margin-bottom:8px"><label class="lbl">Descrição</label><input type="text" id="ec-cus-desc" value="${c.descricao||''}" placeholder="ex: Verango Prime Bayer 1L"></div>
+      <div style="margin-bottom:16px"><label class="lbl">Valor (R$)</label><input type="number" min="0" step="0.01" id="ec-cus-val" value="${c.valor||''}"></div>
+      <button class="btn btn-red" id="btn-salvar-edit-cus">Salvar Alterações</button>`;
+  }
+
   if(modal==='novo-ciclo') {
     body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Novo Ciclo — Estufa ${modalData.estufa}</div>
-      <div style="margin-bottom:8px"><label class="lbl">Data do Plantio</label><input type="date" id="m-plantio" value="${today()}"></div>
-      <div style="margin-bottom:8px"><label class="lbl">Variedade</label><input type="text" id="m-variedade" placeholder="ex: Alambra, Dominador"></div>
-      <div style="margin-bottom:8px"><label class="lbl">Origem das Mudas</label><input type="text" id="m-origem" placeholder="ex: Viveiro João, própria"></div>
+      <div class="grid2" style="margin-bottom:8px">
+        <div><label class="lbl">Data do Plantio</label><input type="date" id="m-plantio" value="${today()}"></div>
+        <div><label class="lbl">Semeio / Pedido Mudas</label><input type="date" id="m-semeio"></div>
+      </div>
+      <div style="margin-bottom:8px"><label class="lbl">Variedade</label><input type="text" id="m-variedade" placeholder="ex: Maserati, Dante"></div>
+      <div class="grid2" style="margin-bottom:8px">
+        <div><label class="lbl">Qtd. Mudas</label><input type="number" min="0" id="m-qtd-mudas" placeholder="ex: 1000"></div>
+        <div><label class="lbl">Espaçamento</label><input type="text" id="m-espacamento" placeholder="ex: 0,5 x 1,0m"></div>
+      </div>
+      <div style="margin-bottom:8px">
+        <label class="lbl">Tipo de Muda</label>
+        <div style="display:flex;gap:16px;margin-top:4px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="radio" name="m-tipo-muda" value="pe-franco" id="m-pe-franco" checked> Pé Franco
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="radio" name="m-tipo-muda" value="porta-enxerto" id="m-porta-enxerto"> Porta-enxerto
+          </label>
+        </div>
+      </div>
+      <div id="m-pe-box" style="display:none;margin-bottom:8px">
+        <label class="lbl">Qual Porta-enxerto</label>
+        <input type="text" id="m-pe-qual" placeholder="ex: Arnold, Maxifort">
+      </div>
       <div style="margin-bottom:16px"><label class="lbl">Observações</label><textarea id="m-obs" placeholder="..."></textarea></div>
       <button class="btn btn-green" id="btn-criar-ciclo">Abrir Ciclo</button>`;
+  }
+
+  if(modal==='editar-ciclo') {
+    const ci = S.ciclos.find(x=>x.id===modalData.cicloId)||{};
+    body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Editar Ciclo — Estufa ${modalData.estufa}</div>
+      <div class="grid2" style="margin-bottom:8px">
+        <div><label class="lbl">Data do Plantio</label><input type="date" id="ec-plantio" value="${ci.plantio||today()}"></div>
+        <div><label class="lbl">Semeio / Pedido Mudas</label><input type="date" id="ec-semeio" value="${ci.semeio||''}"></div>
+      </div>
+      <div style="margin-bottom:8px"><label class="lbl">Variedade</label><input type="text" id="ec-variedade" value="${ci.variedade||''}" placeholder="ex: Maserati, Dante"></div>
+      <div class="grid2" style="margin-bottom:8px">
+        <div><label class="lbl">Qtd. Mudas</label><input type="number" min="0" id="ec-qtd-mudas" value="${ci.qtdMudas||''}"></div>
+        <div><label class="lbl">Espaçamento</label><input type="text" id="ec-espacamento" value="${ci.espacamento||''}" placeholder="ex: 0,5 x 1,0m"></div>
+      </div>
+      <div style="margin-bottom:8px">
+        <label class="lbl">Tipo de Muda</label>
+        <div style="display:flex;gap:16px;margin-top:4px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="radio" name="ec-tipo-muda" value="pe-franco" ${(ci.tipoMuda||'pe-franco')==='pe-franco'?'checked':''}> Pé Franco
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="radio" name="ec-tipo-muda" value="porta-enxerto" ${ci.tipoMuda==='porta-enxerto'?'checked':''}> Porta-enxerto
+          </label>
+        </div>
+      </div>
+      <div id="ec-pe-box" style="display:${ci.tipoMuda==='porta-enxerto'?'block':'none'};margin-bottom:8px">
+        <label class="lbl">Qual Porta-enxerto</label>
+        <input type="text" id="ec-pe-qual" value="${ci.portaEnxerto||''}" placeholder="ex: Arnold, Maxifort">
+      </div>
+      <div style="margin-bottom:16px"><label class="lbl">Observações</label><textarea id="ec-obs" placeholder="...">${ci.obs||''}</textarea></div>
+      <button class="btn btn-green" id="btn-salvar-edit-ciclo">Salvar Alterações</button>`;
   }
 
   if(modal==='encerrar') {
     body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Encerrar Ciclo</div>
       <div style="margin-bottom:8px"><label class="lbl">Última Colheita</label><input type="date" id="m-ultima-col" value="${today()}"></div>
-      <div style="margin-bottom:8px"><label class="lbl">Total Caixas (estimado)</label><input type="number" min="0" id="m-total-cx" placeholder="0"></div>
       <div style="margin-bottom:16px"><label class="lbl">Observações finais</label><textarea id="m-enc-obs" placeholder="..."></textarea></div>
       <button class="btn btn-red" id="btn-confirmar-encerrar">Encerrar Ciclo</button>`;
+  }
+
+  if(modal==='editar-occ') {
+    const o = S.ocorrencias.find(x=>x.id===modalData.occId)||{};
+    body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Editar Ocorrência</div>
+      <div class="grid2" style="margin-bottom:8px">
+        <div><label class="lbl">Data</label><input type="date" id="m-occ-data" value="${o.data||today()}"></div>
+        <div><label class="lbl">Tipo</label><select id="m-occ-tipo">${TIPOS_OCC.map(t=>`<option${o.tipo===t?' selected':''}>${t}</option>`).join('')}</select></div>
+      </div>
+      <div style="margin-bottom:8px"><label class="lbl">Descrição</label><input type="text" id="m-occ-desc" value="${o.descricao||''}" placeholder="ex: Míldio, Ácaro rajado"></div>
+      <div style="margin-bottom:8px">
+        <label class="lbl">Severidade</label>
+        <div style="display:flex;gap:16px;margin-top:4px">
+          ${SEV.map(s=>`<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="radio" name="m-occ-sev" value="${s}" ${(o.severidade||'leve')===s?'checked':''}> ${s}
+          </label>`).join('')}
+        </div>
+      </div>
+      <div class="grid2" style="margin-bottom:8px">
+        <div><label class="lbl">Produto Aplicado</label><input type="text" id="m-occ-prod" value="${o.produto||''}" placeholder="opcional"></div>
+        <div><label class="lbl">Dose</label><input type="text" id="m-occ-dose" value="${o.dose||''}" placeholder="ex: 2mL/L"></div>
+      </div>
+      <div style="margin-bottom:16px"><label class="lbl">Resolução / Resultado</label><textarea id="m-occ-res" placeholder="opcional">${o.resolucao||''}</textarea></div>
+      <button class="btn btn-blue" id="btn-atualizar-occ">Salvar Alterações</button>`;
   }
 
   if(modal==='nova-occ') {
@@ -700,7 +930,35 @@ function renderModal() {
 }
 
 // ─── Events ──────────────────────────────────────────────────────────────────
+function updateSubcat() {
+  const cat = document.getElementById('cus-cat')?.value;
+  const sub = document.getElementById('cus-subcat');
+  if(!cat||!sub) return;
+  const opts = CAT_CUSTOS[cat]||[];
+  sub.innerHTML = opts.map(s=>`<option>${s}</option>`).join('');
+}
+
+function confirmar(msg, onSim) {
+  const div = document.createElement('div');
+  div.className = 'confirm-overlay';
+  div.innerHTML = `<div class="confirm-box">
+    <div class="confirm-msg">${msg}</div>
+    <div class="confirm-btns">
+      <button class="btn btn-ghost" id="conf-nao">Cancelar</button>
+      <button class="btn btn-red" id="conf-sim">Excluir</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  div.querySelector('#conf-nao').addEventListener('click', ()=>div.remove());
+  div.querySelector('#conf-sim').addEventListener('click', ()=>{ div.remove(); onSim(); });
+}
+
 function attachEvents() {
+  // periodo filter
+  document.querySelectorAll('[data-periodo]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ S.periodo=btn.dataset.periodo; render(); });
+  });
+
   // nav
   document.querySelectorAll('[data-tab]').forEach(btn=>{
     btn.addEventListener('click',()=>{ S.tab=btn.dataset.tab; render(); });
@@ -717,6 +975,10 @@ function attachEvents() {
   // salvar colheita
   const btnCol = document.getElementById('btn-salvar-col');
   if(btnCol) btnCol.addEventListener('click', salvarColheita);
+
+  // subcategoria update
+  const cusCat = document.getElementById('cus-cat');
+  if(cusCat) cusCat.addEventListener('change', updateSubcat);
 
   // salvar custo
   const btnCus = document.getElementById('btn-salvar-cus');
@@ -737,6 +999,36 @@ function attachEvents() {
     btn.addEventListener('click',()=>{ S.modal='nova-occ'; S.modalData={cicloId:btn.dataset.novaOcc, estufa:+btn.dataset.occEstufa}; render(); });
   });
 
+  // editar ciclo ativo
+  document.querySelectorAll('[data-editar-ciclo]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ S.modal='editar-ciclo'; S.modalData={cicloId:btn.dataset.editarCiclo, estufa:+btn.dataset.editarCicloEstufa}; render(); });
+  });
+
+  // tipo muda radio toggle no modal editar ciclo
+  document.querySelectorAll('input[name="ec-tipo-muda"]').forEach(r=>{
+    r.addEventListener('change',()=>{
+      const box = document.getElementById('ec-pe-box');
+      if(box) box.style.display = r.value==='porta-enxerto'&&r.checked?'block':'none';
+    });
+  });
+
+  // wire btn-salvar-edit-ciclo
+  const btnEditCiclo = document.getElementById('btn-salvar-edit-ciclo');
+  if(btnEditCiclo) btnEditCiclo.addEventListener('click', salvarEditCiclo);
+
+  // tipo muda radio toggle
+  document.querySelectorAll('input[name="m-tipo-muda"]').forEach(r=>{
+    r.addEventListener('change',()=>{
+      const box = document.getElementById('m-pe-box');
+      if(box) box.style.display = r.value==='porta-enxerto'&&r.checked?'block':'none';
+    });
+  });
+
+  // editar ocorrencia
+  document.querySelectorAll('[data-edit-occ]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ S.modal='editar-occ'; S.modalData={occId:btn.dataset.editOcc}; render(); });
+  });
+
   // modal actions
   const btnCriarCiclo = document.getElementById('btn-criar-ciclo');
   if(btnCriarCiclo) btnCriarCiclo.addEventListener('click', criarCiclo);
@@ -744,17 +1036,59 @@ function attachEvents() {
   const btnEncerrar = document.getElementById('btn-confirmar-encerrar');
   if(btnEncerrar) btnEncerrar.addEventListener('click', encerrarCiclo);
 
+  const btnEditCol = document.getElementById('btn-salvar-edit-col');
+  if(btnEditCol) btnEditCol.addEventListener('click', salvarEditCol);
+
   const btnOcc = document.getElementById('btn-salvar-occ');
   if(btnOcc) btnOcc.addEventListener('click', salvarOcorrencia);
 
+  const btnAtualizarOcc = document.getElementById('btn-atualizar-occ');
+  if(btnAtualizarOcc) btnAtualizarOcc.addEventListener('click', ()=>{ S.modalData={occId:S.modalData.occId}; atualizarOcorrencia(); });
+
+  // deletar ciclo do histórico
+  document.querySelectorAll('[data-del-ciclo]').forEach(btn=>{
+    btn.addEventListener('click',()=>confirmar('Excluir este ciclo?',()=>deleteDoc(doc(db,'ciclos',btn.dataset.delCiclo))));
+  });
+
+  // editar campos do ciclo (1ª colheita, última colheita)
+  document.querySelectorAll('[data-ciclo-field]').forEach(input=>{
+    input.addEventListener('change', async ()=>{
+      const cicloId = input.dataset.cicloField;
+      const field   = input.dataset.field;
+      await updateDoc(doc(db,'ciclos',cicloId),{[field]: input.value||null});
+    });
+  });
+
+  // editar custo
+  document.querySelectorAll('[data-edit-cus]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ S.modal='editar-cus'; S.modalData={cusId:btn.dataset.editCus}; render(); });
+  });
+
+  // subcategoria update no modal editar custo
+  const ecCusCat = document.getElementById('ec-cus-cat');
+  if(ecCusCat) ecCusCat.addEventListener('change', ()=>{
+    const cat = ecCusCat.value;
+    const sub = document.getElementById('ec-cus-subcat');
+    if(sub) sub.innerHTML = (CAT_CUSTOS[cat]||[]).map(s=>`<option>${s}</option>`).join('');
+  });
+
+  // wire btn-salvar-edit-cus
+  const btnEditCus = document.getElementById('btn-salvar-edit-cus');
+  if(btnEditCus) btnEditCus.addEventListener('click', salvarEditCus);
+
+  // editar colheita
+  document.querySelectorAll('[data-edit-col]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ S.modal='editar-col'; S.modalData={colId:btn.dataset.editCol}; render(); });
+  });
+
   // deletar colheita
   document.querySelectorAll('[data-del-col]').forEach(btn=>{
-    btn.addEventListener('click',()=>deleteDoc(doc(db,'colheitas',btn.dataset.delCol)));
+    btn.addEventListener('click',()=>confirmar('Excluir esta colheita?',()=>deleteDoc(doc(db,'colheitas',btn.dataset.delCol))));
   });
 
   // deletar custo
   document.querySelectorAll('[data-del-cus]').forEach(btn=>{
-    btn.addEventListener('click',()=>deleteDoc(doc(db,'custos',btn.dataset.delCus)));
+    btn.addEventListener('click',()=>confirmar('Excluir este custo?',()=>deleteDoc(doc(db,'custos',btn.dataset.delCus))));
   });
 }
 
@@ -766,6 +1100,38 @@ function updateColPreview() {
   if(!prev) return;
   if(cx>0){ prev.style.display='block'; document.getElementById('col-preview-cx').textContent=cx+' caixas'; document.getElementById('col-preview-rec').textContent=fmt$(rec); }
   else { prev.style.display='none'; }
+}
+
+async function salvarEditCus() {
+  const val = +document.getElementById('ec-cus-val')?.value;
+  const desc = document.getElementById('ec-cus-desc')?.value;
+  if(!val||!desc) return;
+  const updates = {
+    data: document.getElementById('ec-cus-data')?.value,
+    categoria: document.getElementById('ec-cus-cat')?.value,
+    subcategoria: document.getElementById('ec-cus-subcat')?.value||'',
+    descricao: desc,
+    valor: val,
+  };
+  const id = S.modalData.cusId;
+  S.modal=null; render();
+  await updateDoc(doc(db,'custos',id), updates);
+}
+
+async function salvarEditCol() {
+  const g = id => +document.getElementById(id)?.value||0;
+  const data = document.getElementById('ec-data')?.value;
+  if(!data) return;
+  const updates = {
+    data,
+    merc_g_q:g('ec-merc-g-q'), merc_g_p:g('ec-merc-g-p'),
+    cea_g_q:g('ec-cea-g-q'),   cea_g_p:g('ec-cea-g-p'),
+    cea_m_q:g('ec-cea-m-q'),   cea_m_p:g('ec-cea-m-p'),
+    cea_mi_q:g('ec-cea-mi-q'), cea_mi_p:g('ec-cea-mi-p'),
+  };
+  const id = S.modalData.colId;
+  S.modal=null; render();
+  await updateDoc(doc(db,'colheitas',id), updates);
 }
 
 async function salvarColheita() {
@@ -792,10 +1158,12 @@ async function salvarColheita() {
 
 async function salvarCusto() {
   const val = +document.getElementById('cus-val')?.value;
-  if(!val) return;
+  const desc = document.getElementById('cus-desc')?.value;
+  if(!val||!desc) return;
   const entry = {
     data: document.getElementById('cus-data')?.value,
     categoria: document.getElementById('cus-cat')?.value,
+    subcategoria: document.getElementById('cus-subcat')?.value||'',
     descricao: document.getElementById('cus-desc')?.value||'',
     valor: val,
     createdAt: serverTimestamp(),
@@ -809,66 +1177,148 @@ async function salvarCusto() {
   document.getElementById('cus-desc').value='';
 }
 
+async function salvarEditCiclo() {
+  const plantio = document.getElementById('ec-plantio')?.value;
+  if(!plantio) return;
+  const tipoMuda = document.querySelector('input[name="ec-tipo-muda"]:checked')?.value||'pe-franco';
+  const updates = {
+    plantio,
+    semeio:       document.getElementById('ec-semeio')?.value||null,
+    variedade:    document.getElementById('ec-variedade')?.value||'',
+    qtdMudas:     +document.getElementById('ec-qtd-mudas')?.value||null,
+    espacamento:  document.getElementById('ec-espacamento')?.value||'',
+    tipoMuda,
+    portaEnxerto: tipoMuda==='porta-enxerto'?(document.getElementById('ec-pe-qual')?.value||''):'',
+    obs:          document.getElementById('ec-obs')?.value||'',
+  };
+  const id = S.modalData.cicloId;
+  S.modal=null; render();
+  await updateDoc(doc(db,'ciclos',id), updates);
+}
+
 async function criarCiclo() {
   const plantio = document.getElementById('m-plantio')?.value;
   if(!plantio) return;
   const estufa = S.modalData.estufa;
-  // Encerrar ciclo anterior se existir
+  const variedade    = document.getElementById('m-variedade')?.value||'';
+  const semeio       = document.getElementById('m-semeio')?.value||null;
+  const qtdMudas     = +document.getElementById('m-qtd-mudas')?.value||null;
+  const espacamento  = document.getElementById('m-espacamento')?.value||'';
+  const tipoMuda     = document.querySelector('input[name="m-tipo-muda"]:checked')?.value||'pe-franco';
+  const portaEnxerto = tipoMuda==='porta-enxerto'?(document.getElementById('m-pe-qual')?.value||''):'';
+  const obs          = document.getElementById('m-obs')?.value||'';
+  S.modal=null; render();
   const anterior = cicloAtivo(estufa);
   if(anterior) await updateDoc(doc(db,'ciclos',anterior.id),{encerrado:true, encerradoEm:today()});
   await addDoc(collection(db,'ciclos'),{
-    estufa, plantio,
-    variedade: document.getElementById('m-variedade')?.value||'',
-    origemMudas: document.getElementById('m-origem')?.value||'',
-    obs: document.getElementById('m-obs')?.value||'',
+    estufa, plantio, variedade, semeio, qtdMudas, espacamento,
+    tipoMuda, portaEnxerto, obs,
     encerrado: false,
     primeiraColheita: null,
     ultimaColheita: null,
     createdAt: serverTimestamp(),
   });
-  S.modal=null; render();
 }
 
 async function encerrarCiclo() {
   const cicloId = S.modalData.cicloId;
   const ultimaCol = document.getElementById('m-ultima-col')?.value;
-  const totalCx = +document.getElementById('m-total-cx')?.value||0;
   const obs = document.getElementById('m-enc-obs')?.value||'';
+  S.modal=null; render();
   await updateDoc(doc(db,'ciclos',cicloId),{
     encerrado:true, encerradoEm:today(),
-    ultimaColheita:ultimaCol||today(),
-    totalCaixas:totalCx, obs,
+    ultimaColheita:ultimaCol||today(), obs,
   });
+}
+
+async function atualizarOcorrencia() {
+  const desc = document.getElementById('m-occ-desc')?.value;
+  if(!desc) return;
+  const sev = document.querySelector('input[name="m-occ-sev"]:checked')?.value||'leve';
+  const updates = {
+    data: document.getElementById('m-occ-data')?.value,
+    tipo: document.getElementById('m-occ-tipo')?.value,
+    descricao: desc, severidade: sev,
+    produto: document.getElementById('m-occ-prod')?.value||'',
+    dose: document.getElementById('m-occ-dose')?.value||'',
+    resolucao: document.getElementById('m-occ-res')?.value||'',
+  };
   S.modal=null; render();
+  await updateDoc(doc(db,'ocorrencias',S.modalData.occId), updates);
 }
 
 async function salvarOcorrencia() {
   const desc = document.getElementById('m-occ-desc')?.value;
   if(!desc) return;
   const sev = document.querySelector('input[name="m-occ-sev"]:checked')?.value||'leve';
-  await addDoc(collection(db,'ocorrencias'),{
+  const entry = {
     cicloId: S.modalData.cicloId,
     estufa: S.modalData.estufa,
     data: document.getElementById('m-occ-data')?.value,
     tipo: document.getElementById('m-occ-tipo')?.value,
-    descricao: desc,
-    severidade: sev,
+    descricao: desc, severidade: sev,
     produto: document.getElementById('m-occ-prod')?.value||'',
     dose: document.getElementById('m-occ-dose')?.value||'',
     resolucao: document.getElementById('m-occ-res')?.value||'',
     createdAt: serverTimestamp(),
-  });
+  };
   S.modal=null; render();
+  await addDoc(collection(db,'ocorrencias'), entry);
+}
+
+// ─── PIN Lock ────────────────────────────────────────────────────────────────
+const PIN = '2908';
+const PIN_KEY = 'estufa-pin-ok';
+
+function checkPin() {
+  return localStorage.getItem(PIN_KEY) === '1';
+}
+
+function renderPin(erro) {
+  document.getElementById('app').innerHTML = `
+    <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg);padding:32px">
+      <div style="font-size:20px;font-weight:500;color:var(--green);letter-spacing:.15em;margin-bottom:4px">ESTUFA</div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.15em;margin-bottom:40px">Gestão da Operação</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 24px;width:100%;max-width:280px">
+        <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:16px;text-transform:uppercase;letter-spacing:.1em">Digite o PIN</div>
+        <input type="password" inputmode="numeric" id="pin-input" maxlength="4"
+          style="text-align:center;font-size:28px;letter-spacing:.3em;padding:12px;margin-bottom:${erro?'8':'16'}px"
+          placeholder="····" autofocus>
+        ${erro?'<div style="font-size:11px;color:var(--red);text-align:center;margin-bottom:12px">PIN incorreto</div>':''}
+        <button class="btn btn-green" id="btn-pin">Entrar</button>
+      </div>
+    </div>`;
+  const input = document.getElementById('pin-input');
+  const btn   = document.getElementById('btn-pin');
+  const tentar = () => {
+    if(input.value === PIN){ localStorage.setItem(PIN_KEY,'1'); initApp(); }
+    else { input.value=''; renderPin(true); }
+  };
+  btn.addEventListener('click', tentar);
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter') tentar(); });
+}
+
+function initApp() {
+  S.ready = false;
+  render();
+  // start listeners
+  startListeners();
 }
 
 // ─── Firebase listeners ───────────────────────────────────────────────────────
 let readyCount = 0;
 function checkReady() { readyCount++; if(readyCount>=4){ S.ready=true; render(); } }
 
-onSnapshot(query(collection(db,'ciclos'),    orderBy('createdAt','desc')), snap=>{ S.ciclos     =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
-onSnapshot(query(collection(db,'colheitas'), orderBy('data','desc')),      snap=>{ S.colheitas  =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
-onSnapshot(query(collection(db,'custos'),    orderBy('data','desc')),      snap=>{ S.custos     =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
-onSnapshot(query(collection(db,'ocorrencias'),orderBy('data','desc')),     snap=>{ S.ocorrencias=snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
+function startListeners() {
+  readyCount = 0;
+  onSnapshot(query(collection(db,'ciclos'),     orderBy('createdAt','desc')), snap=>{ S.ciclos     =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
+  onSnapshot(query(collection(db,'colheitas'),  orderBy('data','desc')),      snap=>{ S.colheitas  =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
+  onSnapshot(query(collection(db,'custos'),     orderBy('data','desc')),      snap=>{ S.custos     =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
+  onSnapshot(query(collection(db,'ocorrencias'),orderBy('data','desc')),      snap=>{ S.ocorrencias=snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
+}
+
+// Boot
+if(checkPin()) { initApp(); } else { renderPin(false); }
 </script>
 </body>
 </html>
