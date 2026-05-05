@@ -434,7 +434,11 @@ function renderCustos() {
     })
     .filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
   const recentes = [...S.custos].sort((a,b)=>b.data.localeCompare(a.data));
-  const aVencer = recentes.filter(c=>c.data>today());
+  const aVencer = recentes.filter(c=>{
+    if(c.data<=today()) return false;
+    const limite = new Date(); limite.setMonth(limite.getMonth()+3);
+    return c.data <= limite.toISOString().slice(0,10);
+  });
   const passados = recentes.filter(c=>c.data<=today());
 
   return `<div class="pad">
@@ -1221,12 +1225,12 @@ async function salvarCusto() {
   if(repetir==='nao') {
     await addDoc(collection(db,'custos'),{data:dataBase,categoria:cat,subcategoria:sub,descricao:desc,valor:val,repetir:'nao',createdAt:serverTimestamp()});
   } else if(repetir==='quinzenal') {
-    // gera 24 quinzenas (~12 meses)
+    // gera 12 quinzenas (~6 meses)
     const [y,m,d] = dataBase.split('-').map(Number);
     let dt = new Date(Date.UTC(y,m-1,d));
-    for(let i=0;i<24;i++){
+    for(let i=0;i<12;i++){
       const s = dt.toISOString().slice(0,10);
-      await addDoc(collection(db,'custos'),{data:s,categoria:cat,subcategoria:sub,descricao:desc,valor:val,repetir:'quinzenal',parcelaNum:i+1,parcelasTotal:24,createdAt:serverTimestamp()});
+      await addDoc(collection(db,'custos'),{data:s,categoria:cat,subcategoria:sub,descricao:desc,valor:val,repetir:'quinzenal',parcelaNum:i+1,parcelasTotal:12,createdAt:serverTimestamp()});
       dt = new Date(dt.getTime() + 15*864e5);
     }
   } else if(repetir==='mensal') {
