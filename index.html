@@ -293,24 +293,6 @@ function renderPainel() {
       ${metric('Margem',`${mar.toFixed(1)}%`,mar>=0?'var(--green)':'var(--red)')}
     </div>
 
-    ${(()=>{
-      const acumulado = S.colheitas.reduce((a,c)=>a+recTotal(c),0) - S.custos.filter(c=>c.data<=today()).reduce((a,c)=>a+c.valor,0);
-      const horizonte = S.periodo==='mes'? (() => { const [y,m]=mesAtual().split('-').map(Number); const fim=`${y}-${String(m).padStart(2,'0')}-31`; return S.custos.filter(c=>c.data>today()&&c.data<=fim); })()
-        : S.periodo==='trimestre'? (() => { const d=new Date(); d.setMonth(d.getMonth()+3); const fim=d.toISOString().slice(0,10); return S.custos.filter(c=>c.data>today()&&c.data<=fim); })()
-        : S.periodo==='ano'? (() => { const fim=`${new Date().getFullYear()}-12-31`; return S.custos.filter(c=>c.data>today()&&c.data<=fim); })()
-        : S.custos.filter(c=>c.data>today());
-      const futuro = horizonte.reduce((a,c)=>a+c.valor,0);
-      const saldoLivre = acumulado - futuro;
-      return `<div class="card" style="border-color:${saldoLivre>=0?'#166534':'#7f1d1d'}">
-        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px">Saldo Futuro — ${getPeriodoLabel()}</div>
-        <div class="grid3" style="text-align:center">
-          <div><div style="font-size:9px;color:var(--muted);margin-bottom:4px;text-transform:uppercase">Acumulado</div><div style="font-size:13px;font-weight:500;color:var(--green)">${fmt$(acumulado)}</div></div>
-          <div><div style="font-size:9px;color:var(--muted);margin-bottom:4px;text-transform:uppercase">Compromissos</div><div style="font-size:13px;font-weight:500;color:var(--orange)">− ${fmt$(futuro)}</div></div>
-          <div><div style="font-size:9px;color:var(--muted);margin-bottom:4px;text-transform:uppercase">Saldo Livre</div><div style="font-size:15px;font-weight:500;color:${saldoLivre>=0?'var(--green)':'var(--red)'};">${fmt$(saldoLivre)}</div></div>
-        </div>
-      </div>`;
-    })()}
-
     <div class="card">
       <div class="card-title">Caixas — ${getPeriodoLabel()}</div>
       <div style="margin-bottom:10px">
@@ -433,8 +415,6 @@ function renderCustos() {
     })
     .filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
   const recentes = [...S.custos].sort((a,b)=>b.data.localeCompare(a.data));
-  const aVencer = recentes.filter(c=>c.data>today());
-  const passados = recentes.filter(c=>c.data<=today());
 
   return `<div class="pad">
     <div class="card">
@@ -448,19 +428,7 @@ function renderCustos() {
         <select id="cus-subcat">${CAT_CUSTOS[CAT_INSUMOS[0]].map(s=>`<option>${s}</option>`).join('')}</select>
       </div>
       <div style="margin-bottom:8px"><label class="lbl">Descrição</label><input type="text" id="cus-desc" placeholder="ex: Verango Prime Bayer 1L" required></div>
-      <div style="margin-bottom:8px"><label class="lbl">Valor (R$)</label><input type="number" min="0" step="0.01" id="cus-val" placeholder="0,00"></div>
-      <div style="margin-bottom:8px">
-        <label class="lbl">Repetir</label>
-        <select id="cus-repetir">
-          <option value="nao">Não repete</option>
-          <option value="mensal">Mensal</option>
-          <option value="parcelado">Parcelado</option>
-        </select>
-      </div>
-      <div id="cus-parcelas-box" style="display:none;margin-bottom:8px">
-        <label class="lbl">Nº de Parcelas</label>
-        <input type="number" min="2" max="60" id="cus-parcelas" placeholder="ex: 6">
-      </div>
+      <div style="margin-bottom:12px"><label class="lbl">Valor (R$)</label><input type="number" min="0" step="0.01" id="cus-val" placeholder="0,00"></div>
       <button class="btn btn-red" id="btn-salvar-cus">Registrar Custo</button>
     </div>
 
@@ -482,32 +450,13 @@ function renderCustos() {
       }).join('')}
     </div>`:''}
 
-    ${aVencer.length>0?`<div class="card" style="border-color:#92400e">
-      <div class="card-title" style="color:var(--amber)">A Vencer</div>
-      ${aVencer.map(c=>`
+    <div class="card">
+      <div class="card-title">Histórico</div>
+      ${recentes.length===0?'<div class="empty">Nenhum custo registrado ainda.</div>':
+      recentes.map(c=>`
         <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)">
           <div style="flex:1;min-width:0;margin-right:8px">
             <div style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.descricao||c.categoria}</div>
-            <div style="font-size:10px;color:var(--muted);display:flex;gap:6px">
-              <span>${fmtD(c.data)}</span>
-              <span style="color:var(--amber)">${c.repetir==='mensal'?'↻ Mensal':c.repetir==='parcelado'?`Parcela ${c.parcelaNum||''}/${c.parcelasTotal||''}`:''}</span>
-            </div>
-          </div>
-          <div class="row" style="gap:8px;flex-shrink:0">
-            <div style="font-size:13px;color:var(--amber);font-weight:500">${fmt$(c.valor)}</div>
-            <button class="btn-danger" style="background:#0a2a0a;color:var(--blue)" data-edit-cus="${c.id}">✎</button>
-            <button class="btn-danger" data-del-cus="${c.id}">✕</button>
-          </div>
-        </div>`).join('')}
-    </div>`:''}
-
-    <div class="card">
-      <div class="card-title">Histórico</div>
-      ${passados.length===0?'<div class="empty">Nenhum custo registrado ainda.</div>':
-      passados.map(c=>`
-        <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)">
-          <div style="flex:1;min-width:0;margin-right:8px">
-            <div style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.descricao||c.categoria}${c.repetir==='mensal'?' ↻':c.repetir==='parcelado'?` (${c.parcelaNum||''}/${c.parcelasTotal||''})':''}</div>
             <div style="font-size:10px;color:var(--muted)">${fmtD(c.data)} · ${c.categoria}${c.subcategoria?" › "+c.subcategoria:""}</div>
           </div>
           <div class="row" style="gap:8px;flex-shrink:0">
@@ -1031,13 +980,6 @@ function attachEvents() {
   const cusCat = document.getElementById('cus-cat');
   if(cusCat) cusCat.addEventListener('change', updateSubcat);
 
-  // repetir toggle
-  const cusRepetir = document.getElementById('cus-repetir');
-  if(cusRepetir) cusRepetir.addEventListener('change',()=>{
-    const box = document.getElementById('cus-parcelas-box');
-    if(box) box.style.display = cusRepetir.value==='parcelado'?'block':'none';
-  });
-
   // salvar custo
   const btnCus = document.getElementById('btn-salvar-cus');
   if(btnCus) btnCus.addEventListener('click', salvarCusto);
@@ -1218,52 +1160,21 @@ async function salvarCusto() {
   const val = +document.getElementById('cus-val')?.value;
   const desc = document.getElementById('cus-desc')?.value;
   if(!val||!desc) return;
-  const dataBase = document.getElementById('cus-data')?.value;
-  const repetir = document.getElementById('cus-repetir')?.value||'nao';
-  const nParcelas = +document.getElementById('cus-parcelas')?.value||1;
-  const cat = document.getElementById('cus-cat')?.value;
-  const sub = document.getElementById('cus-subcat')?.value||'';
+  const entry = {
+    data: document.getElementById('cus-data')?.value,
+    categoria: document.getElementById('cus-cat')?.value,
+    subcategoria: document.getElementById('cus-subcat')?.value||'',
+    descricao: document.getElementById('cus-desc')?.value||'',
+    valor: val,
+    createdAt: serverTimestamp(),
+  };
   const btn = document.getElementById('btn-salvar-cus');
   btn.textContent='Salvando...'; btn.disabled=true;
-
-  if(repetir==='nao') {
-    await addDoc(collection(db,'custos'),{
-      data:dataBase, categoria:cat, subcategoria:sub,
-      descricao:desc, valor:val, repetir:'nao', createdAt:serverTimestamp(),
-    });
-  } else if(repetir==='mensal') {
-    // gera 12 meses
-    const [y,m,d] = dataBase.split('-').map(Number);
-    for(let i=0;i<12;i++){
-      let mm=m+i, yy=y;
-      while(mm>12){mm-=12;yy++;}
-      const dt=`${yy}-${String(mm).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      await addDoc(collection(db,'custos'),{
-        data:dt, categoria:cat, subcategoria:sub,
-        descricao:desc, valor:val, repetir:'mensal',
-        parcelaNum:i+1, parcelasTotal:12, createdAt:serverTimestamp(),
-      });
-    }
-  } else if(repetir==='parcelado') {
-    const [y,m,d] = dataBase.split('-').map(Number);
-    for(let i=0;i<nParcelas;i++){
-      let mm=m+i, yy=y;
-      while(mm>12){mm-=12;yy++;}
-      const dt=`${yy}-${String(mm).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      await addDoc(collection(db,'custos'),{
-        data:dt, categoria:cat, subcategoria:sub,
-        descricao:desc, valor:val, repetir:'parcelado',
-        parcelaNum:i+1, parcelasTotal:nParcelas, createdAt:serverTimestamp(),
-      });
-    }
-  }
-
+  await addDoc(collection(db,'custos'),entry);
   btn.textContent='✓ Salvo!';
   setTimeout(()=>{ btn.textContent='Registrar Custo'; btn.disabled=false; },2000);
   document.getElementById('cus-val').value='';
   document.getElementById('cus-desc').value='';
-  document.getElementById('cus-repetir').value='nao';
-  document.getElementById('cus-parcelas-box').style.display='none';
 }
 
 async function salvarEditCiclo() {
