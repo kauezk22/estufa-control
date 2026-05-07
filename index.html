@@ -961,10 +961,10 @@ function renderProdutoForm(p = {}) {
       <div><label class="lbl">Unidade*</label><input type="text" id="m-prod-unidade" value="${p.unidade||''}" placeholder="L, kg, sc, un, cx"></div>
       <div><label class="lbl">Marca</label><input type="text" id="m-prod-marca" value="${p.marca||''}" placeholder="opcional"></div>
     </div>
-    <div class="grid2" style="margin-bottom:8px">
+    ${cat!=='Mudas'?`<div class="grid2" style="margin-bottom:8px">
       <div><label class="lbl" id="m-prod-pa-lbl">${labelPrincipio(cat)}</label><input type="text" id="m-prod-pa" value="${p.principioAtivo||''}" placeholder=""></div>
       <div><label class="lbl">Concentração</label><input type="text" id="m-prod-conc" value="${p.concentracao||''}" placeholder="ex: 200 g/L"></div>
-    </div>
+    </div>`:''}
   `;
 }
 
@@ -1194,6 +1194,8 @@ function updateProdSubcat() {
   sub.innerHTML = (CAT_CUSTOS[cat]||[]).map(s=>`<option${s===cur?' selected':''}>${s}</option>`).join('');
   const lbl = document.getElementById('m-prod-pa-lbl');
   if(lbl) lbl.textContent = labelPrincipio(cat);
+  const paRow = document.getElementById('m-prod-pa')?.closest('.grid2');
+  if(paRow) paRow.style.display = cat==='Mudas' ? 'none' : '';
 }
 
 function onCusProdChange() {
