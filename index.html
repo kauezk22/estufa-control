@@ -247,7 +247,7 @@ function filtrarPeriodo(arr) {
 
 function renderPainel() {
   const colMes = filtrarPeriodo(S.colheitas).filter(isPago);
-  const cusMes = filtrarPeriodo(S.custos);
+  const cusMes = filtrarPeriodo(S.custos).filter(c=>c.data<=today());
   const recM   = colMes.reduce((a,c)=>a+recMerc(c),0);
   const recC   = colMes.reduce((a,c)=>a+recCeasa(c),0);
   const rec    = recM+recC;
