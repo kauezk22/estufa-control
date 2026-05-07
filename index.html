@@ -942,6 +942,13 @@ function calcAlocacao() {
 }
 
 // ─── MODAIS ──────────────────────────────────────────────────────────────────
+function labelPrincipio(cat) {
+  if(cat==='Defensivos'||cat==='Biológicos Solo') return 'Princípio Ativo';
+  if(cat==='Mudas')         return 'Variedade';
+  if(cat==='Fertilizantes') return 'Formulação';
+  return 'Especificação';
+}
+
 function renderProdutoForm(p = {}) {
   const cat = p.categoria || CAT_INSUMOS[0];
   return `
@@ -955,7 +962,7 @@ function renderProdutoForm(p = {}) {
       <div><label class="lbl">Marca</label><input type="text" id="m-prod-marca" value="${p.marca||''}" placeholder="opcional"></div>
     </div>
     <div class="grid2" style="margin-bottom:8px">
-      <div><label class="lbl">Princípio Ativo</label><input type="text" id="m-prod-pa" value="${p.principioAtivo||''}" placeholder="defensivos"></div>
+      <div><label class="lbl" id="m-prod-pa-lbl">${labelPrincipio(cat)}</label><input type="text" id="m-prod-pa" value="${p.principioAtivo||''}" placeholder=""></div>
       <div><label class="lbl">Concentração</label><input type="text" id="m-prod-conc" value="${p.concentracao||''}" placeholder="ex: 200 g/L"></div>
     </div>
   `;
@@ -1185,6 +1192,8 @@ function updateProdSubcat() {
   if(!cat||!sub) return;
   const cur = sub.value;
   sub.innerHTML = (CAT_CUSTOS[cat]||[]).map(s=>`<option${s===cur?' selected':''}>${s}</option>`).join('');
+  const lbl = document.getElementById('m-prod-pa-lbl');
+  if(lbl) lbl.textContent = labelPrincipio(cat);
 }
 
 function onCusProdChange() {
