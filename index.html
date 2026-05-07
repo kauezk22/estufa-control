@@ -849,10 +849,10 @@ function renderModal() {
       <div style="margin-bottom:12px">
         <label class="lbl">Status do Pagamento</label>
         <div style="display:flex;gap:8px;margin-top:4px">
-          <label style="display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;cursor:pointer;flex:1;background:${(c.status||'pago')==='pago'?'#16653480':'#080e08'};border:2px solid ${(c.status||'pago')==='pago'?'var(--green)':'var(--border)'};border-radius:8px;padding:10px;color:${(c.status||'pago')==='pago'?'var(--green)':'var(--muted)'};font-family:'DM Mono',monospace">
+          <label id="lbl-ec-col-pago" style="display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;cursor:pointer;flex:1;background:${(c.status||'pago')==='pago'?'#16653480':'#080e08'};border:2px solid ${(c.status||'pago')==='pago'?'var(--green)':'#1a3a1a'};border-radius:8px;padding:10px;color:${(c.status||'pago')==='pago'?'var(--green)':'#4b5563'};font-family:'DM Mono',monospace">
             <input type="radio" name="ec-col-status" value="pago" ${(c.status||'pago')==='pago'?'checked':''} style="display:none"> ${(c.status||'pago')==='pago'?'✓':'○'} Pago
           </label>
-          <label style="display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;cursor:pointer;flex:1;background:${c.status==='a-pagar'?'#92400e55':'#080e08'};border:2px solid ${c.status==='a-pagar'?'var(--amber)':'var(--border)'};border-radius:8px;padding:10px;color:${c.status==='a-pagar'?'var(--amber)':'var(--muted)'};font-family:'DM Mono',monospace">
+          <label id="lbl-ec-col-apagar" style="display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;cursor:pointer;flex:1;background:${c.status==='a-pagar'?'#92400e55':'#080e08'};border:2px solid ${c.status==='a-pagar'?'var(--amber)':'#1a3a1a'};border-radius:8px;padding:10px;color:${c.status==='a-pagar'?'var(--amber)':'#4b5563'};font-family:'DM Mono',monospace">
             <input type="radio" name="ec-col-status" value="a-pagar" ${c.status==='a-pagar'?'checked':''} style="display:none"> ${c.status==='a-pagar'?'✓':'○'} A Pagar
           </label>
         </div>
@@ -1091,8 +1091,25 @@ function attachEvents() {
   const btnEditCiclo = document.getElementById('btn-salvar-edit-ciclo');
   if(btnEditCiclo) btnEditCiclo.addEventListener('click', salvarEditCiclo);
 
-  // status pagamento toggle visual
-  document.querySelectorAll('input[name="col-status"]').forEach(r=>{
+  // status pagamento toggle visual - novo e editar
+  document.querySelectorAll('input[name="col-status"], input[name="ec-col-status"]').forEach(r=>{
+    r.addEventListener('change',()=>{
+      const prefix = r.name==='col-status' ? 'lbl-col' : 'lbl-ec-col';
+      const pago   = document.getElementById(prefix+'-pago');
+      const apagar = document.getElementById(prefix+'-apagar');
+      if(!pago||!apagar) return;
+      if(r.value==='pago'){
+        pago.style.cssText  ='display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;cursor:pointer;flex:1;background:#16653480;border:2px solid var(--green);border-radius:8px;padding:10px;color:var(--green);font-family:DM Mono,monospace';
+        apagar.style.cssText='display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;cursor:pointer;flex:1;background:#080e08;border:2px solid #1a3a1a;border-radius:8px;padding:10px;color:#4b5563;font-family:DM Mono,monospace';
+      } else {
+        apagar.style.cssText='display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;cursor:pointer;flex:1;background:#92400e55;border:2px solid var(--amber);border-radius:8px;padding:10px;color:var(--amber);font-family:DM Mono,monospace';
+        pago.style.cssText  ='display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;cursor:pointer;flex:1;background:#080e08;border:2px solid #1a3a1a;border-radius:8px;padding:10px;color:#4b5563;font-family:DM Mono,monospace';
+      }
+    });
+  });
+
+  // status pagamento toggle visual - novo e editar (placeholder kept for compat)
+  document.querySelectorAll('input[name="col-status-old"]').forEach(r=>{
     r.addEventListener('change',()=>{
       const pago = document.getElementById('lbl-col-pago');
       const apagar = document.getElementById('lbl-col-apagar');
