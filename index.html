@@ -503,12 +503,6 @@ function renderCustos() {
     return `<div class="pad">${tabToggle}${renderCatalogo()}</div>`;
   }
 
-  // ── Opções do dropdown de produto
-  const prodOptions = S.produtos
-    .slice().sort((a,b)=>a.nome.localeCompare(b.nome))
-    .map(p=>`<option value="${p.id}" data-cat="${p.categoria}" data-sub="${p.subcategoria}" data-un="${p.unidade||'un.'}">${p.nome}${p.marca?' · '+p.marca:''} [${p.subcategoria}]</option>`)
-    .join('');
-
   return `<div class="pad">
     ${tabToggle}
     <div class="card">
@@ -520,14 +514,16 @@ function renderCustos() {
         <input type="date" id="cus-data" value="${today()}">
       </div>
 
-      <!-- Dropdown produto — visível quando há produtos cadastrados -->
+      <!-- Busca produto — visível quando há produtos cadastrados -->
       ${S.produtos.length > 0 ? `
-      <div style="margin-bottom:8px">
+      <div style="margin-bottom:8px;position:relative">
         <label class="lbl">Produto do Catálogo</label>
-        <select id="cus-prod">
-          <option value="">— lançamento avulso —</option>
-          ${prodOptions}
-        </select>
+        <div style="position:relative">
+          <input type="text" id="cus-prod-search" placeholder="buscar produto..." autocomplete="off" style="padding-right:32px">
+          <button id="cus-prod-clear" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0;line-height:1">✕</button>
+        </div>
+        <input type="hidden" id="cus-prod" value="">
+        <div id="cus-prod-results" style="display:none;position:absolute;left:0;right:0;z-index:150;background:#0d1a0d;border:1px solid var(--border);border-radius:8px;max-height:200px;overflow-y:auto;margin-top:2px"></div>
       </div>` : ''}
 
       <!-- Campos produto (oculto por padrão, aparece ao selecionar produto) -->
@@ -1198,30 +1194,65 @@ function updateProdSubcat() {
   if(paRow) paRow.style.display = cat==='Mudas' ? 'none' : '';
 }
 
-function onCusProdChange() {
-  const sel = document.getElementById('cus-prod');
-  if(!sel) return;
-  const val = sel.value;
-  const prodFields = document.getElementById('cus-prod-fields');
-  const avulsoFields = document.getElementById('cus-avulso-fields');
-  if(val) {
-    const opt = sel.selectedOptions[0];
-    const cat = opt.dataset.cat||'';
-    const sub = opt.dataset.sub||'';
-    const un  = opt.dataset.un||'un.';
-    const meta = document.getElementById('cus-prod-meta');
-    if(meta) meta.textContent = `${cat} › ${sub} · unid.: ${un}`;
-    const lbl = document.getElementById('cus-qtd-lbl');
-    if(lbl) lbl.textContent = `Qtd (${un})`;
-    if(prodFields) prodFields.style.display='block';
-    if(avulsoFields) avulsoFields.style.display='none';
-    // reset total
-    const tv = document.getElementById('cus-total-val');
-    if(tv) tv.textContent='R$ 0,00';
+function onProdSearch() {
+  const q = document.getElementById('cus-prod-search')?.value?.toLowerCase().trim();
+  const res = document.getElementById('cus-prod-results');
+  if(!res) return;
+  if(!q) { res.style.display='none'; return; }
+  const matches = S.produtos
+    .filter(p => p.nome.toLowerCase().includes(q))
+    .sort((a,b) => a.nome.localeCompare(b.nome))
+    .slice(0, 10);
+  if(matches.length === 0) {
+    res.innerHTML = `<div style="padding:10px 12px;font-size:12px;color:var(--muted)">Nenhum produto encontrado</div>`;
   } else {
-    if(prodFields) prodFields.style.display='none';
-    if(avulsoFields) avulsoFields.style.display='block';
+    res.innerHTML = matches.map(p => `
+      <div data-sel-prod="${p.id}" data-sel-cat="${p.categoria}" data-sel-sub="${p.subcategoria}" data-sel-un="${p.unidade||'un.'}" data-sel-nome="${p.nome.replace(/"/g,'&quot;')}"
+        style="padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border)">
+        <div style="font-size:12px;color:var(--text)">${p.nome}${p.marca?` <span style="color:var(--muted)">· ${p.marca}</span>`:''}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:1px">${p.subcategoria} · ${p.unidade||'un.'}</div>
+      </div>`).join('');
+    res.querySelectorAll('[data-sel-prod]').forEach(item => {
+      item.addEventListener('click', () => selecionarProduto(item.dataset));
+    });
   }
+  res.style.display = 'block';
+}
+
+function selecionarProduto(d) {
+  const hidden = document.getElementById('cus-prod');
+  const search = document.getElementById('cus-prod-search');
+  const res    = document.getElementById('cus-prod-results');
+  const clr    = document.getElementById('cus-prod-clear');
+  if(hidden) hidden.value = d.selProd;
+  if(search) { search.value = d.selNome; search.readOnly = true; }
+  if(res)  res.style.display = 'none';
+  if(clr)  clr.style.display = 'block';
+  const prodFields   = document.getElementById('cus-prod-fields');
+  const avulsoFields = document.getElementById('cus-avulso-fields');
+  const meta = document.getElementById('cus-prod-meta');
+  const lbl  = document.getElementById('cus-qtd-lbl');
+  const tv   = document.getElementById('cus-total-val');
+  if(meta) meta.textContent = `${d.selCat} › ${d.selSub} · unid.: ${d.selUn}`;
+  if(lbl)  lbl.textContent  = `Qtd (${d.selUn})`;
+  if(prodFields)   prodFields.style.display   = 'block';
+  if(avulsoFields) avulsoFields.style.display = 'none';
+  if(tv) tv.textContent = 'R$ 0,00';
+}
+
+function limparProdSearch() {
+  const hidden = document.getElementById('cus-prod');
+  const search = document.getElementById('cus-prod-search');
+  const res    = document.getElementById('cus-prod-results');
+  const clr    = document.getElementById('cus-prod-clear');
+  if(hidden) hidden.value = '';
+  if(search) { search.value = ''; search.readOnly = false; search.focus(); }
+  if(res)  res.style.display = 'none';
+  if(clr)  clr.style.display = 'none';
+  const prodFields   = document.getElementById('cus-prod-fields');
+  const avulsoFields = document.getElementById('cus-avulso-fields');
+  if(prodFields)   prodFields.style.display   = 'none';
+  if(avulsoFields) avulsoFields.style.display = 'block';
 }
 
 function updateCusTotalProd() {
@@ -1293,9 +1324,14 @@ function attachEvents() {
   const cusCat = document.getElementById('cus-cat');
   if(cusCat) cusCat.addEventListener('change', updateSubcat);
 
-  // produto dropdown
-  const cusProd = document.getElementById('cus-prod');
-  if(cusProd) cusProd.addEventListener('change', onCusProdChange);
+  // busca produto
+  const cusProdSearch = document.getElementById('cus-prod-search');
+  if(cusProdSearch) {
+    cusProdSearch.addEventListener('input', onProdSearch);
+    cusProdSearch.addEventListener('blur', () => setTimeout(()=>{ const r=document.getElementById('cus-prod-results'); if(r) r.style.display='none'; }, 150));
+  }
+  const cusProdClear = document.getElementById('cus-prod-clear');
+  if(cusProdClear) cusProdClear.addEventListener('click', limparProdSearch);
 
   // qtd + precounit live total
   ['cus-qtd','cus-precounit'].forEach(id=>{
