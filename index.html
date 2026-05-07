@@ -87,6 +87,15 @@ input[type=number]::-webkit-inner-spin-button{opacity:.3}
 .confirm-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 ::-webkit-scrollbar{width:3px}
 ::-webkit-scrollbar-thumb{background:#1e3a1e;border-radius:2px}
+/* ver mais btn */
+.btn-ver-mais{width:100%;padding:10px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;margin-top:8px;text-align:center;display:block}
+/* sub-view pill toggle */
+.pill-toggle{display:flex;gap:6px;margin-bottom:4px}
+.pill-btn{flex:1;padding:8px 4px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:'DM Mono',monospace;font-size:10px;cursor:pointer;text-transform:uppercase;letter-spacing:.06em;transition:all .15s}
+.pill-btn.active{border-color:var(--green);background:#16a34a22;color:var(--green)}
+/* produto info box */
+.prod-info-box{padding:8px 10px;background:#080e08;border-radius:8px;border:1px solid var(--border);margin-bottom:8px}
+.total-box{padding:8px 10px;background:#080e08;border-radius:8px;border:1px solid var(--border);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
 </style>
 </head>
 <body>
@@ -126,18 +135,23 @@ const CAT_CUSTOS = {
 const CAT_INSUMOS = Object.keys(CAT_CUSTOS);
 const TIPOS_OCC = ['Doença','Praga','Deficiência Nutricional','Problema Estrutural','Outro'];
 const SEV = ['leve','moderada','grave'];
+const LISTA_N = 5; // itens visíveis por padrão nas listas
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const S = {
   tab: 'painel',
   periodo: 'mes',
-  verMaisVencer: false,
+  // Sistema "ver mais" unificado
+  verMais: { colheitas: false, custos: false, vencer: false },
+  // Sub-view da aba Custos
+  custoView: 'lancar',  // 'lancar' | 'produtos'
   modal: null,
   modalData: {},
   ciclos: [],
   colheitas: [],
   custos: [],
   ocorrencias: [],
+  produtos: [],          // catálogo de produtos
   ready: false,
 };
 
@@ -152,6 +166,20 @@ const diasEntre = (a,b) => Math.round((parseDate(b)-parseDate(a))/864e5);
 const diasDesde = s => { if(!s)return null; return diasEntre(s, today()); };
 const mesDe = s => s ? s.slice(0,7) : '';
 const mesAtual = () => today().slice(0,7);
+
+// Nome de exibição de custo — suporta produto do catálogo e lançamento avulso
+const nomeCusto = c => c.nomeProduto || c.descricao || c.categoria || '—';
+// Detalhe de custo com produto
+const detalheCusto = c => c.qtd ? `${c.qtd} ${c.unidadeProduto||'un.'} × ${fmt$(c.precoUnit)}` : '';
+
+// ─── Helper: botão "Ver mais / Ver menos" ─────────────────────────────────────
+function btnVerMais(expanded, total, key) {
+  if(total <= LISTA_N) return '';
+  const resto = total - LISTA_N;
+  return `<button class="btn-ver-mais" data-vermais="${key}">
+    ${expanded ? '▲ Ver menos' : `▼ Ver mais ${resto} registro${resto>1?'s':''}`}
+  </button>`;
+}
 
 function getFase(dias) {
   if(dias===null) return {label:'Sem ciclo',color:'var(--muted)',ring:'var(--border)'};
@@ -236,7 +264,6 @@ function filtrarPeriodo(arr) {
   const [y,m] = mes.split('-').map(Number);
   if(S.periodo==='mes') return arr.filter(c=>mesDe(c.data)===mes);
   if(S.periodo==='ano') return arr.filter(c=>c.data&&c.data.startsWith(String(y)));
-  // trimestre: últimos 3 meses
   const meses = [];
   for(let i=0;i<3;i++){
     let mm = m-i; let yy = y;
@@ -365,6 +392,8 @@ function metric(label,val,color,sub='') {
 // ─── COLHEITA ────────────────────────────────────────────────────────────────
 function renderColheita() {
   const recentes = [...S.colheitas].sort((a,b)=>b.data.localeCompare(a.data));
+  const visiveis = S.verMais.colheitas ? recentes : recentes.slice(0, LISTA_N);
+
   return `<div class="pad">
     <div class="card">
       <div style="font-size:14px;font-weight:500;color:var(--text);margin-bottom:14px">Registrar Colheita</div>
@@ -416,23 +445,25 @@ function renderColheita() {
 
     <div class="card">
       <div class="card-title">Histórico</div>
-      ${recentes.length===0?'<div class="empty">Nenhuma colheita registrada ainda.</div>':
-      recentes.map(c=>`
-        <div style="padding:10px 0;border-bottom:1px solid var(--border)">
-          <div class="row" style="margin-bottom:5px">
-            <div class="row" style="gap:6px">
-              <div style="font-size:13px;font-weight:500;color:var(--text)">${fmtD(c.data)}</div>
-              <span style="font-size:9px;padding:2px 6px;border-radius:4px;background:${c.status==='a-pagar'?'#92400e55':'#16653455'};color:${c.status==='a-pagar'?'var(--amber)':'var(--green)'};">${c.status==='a-pagar'?'A PAGAR':'PAGO'}</span>
+      ${recentes.length===0?'<div class="empty">Nenhuma colheita registrada ainda.</div>':`
+        ${visiveis.map(c=>`
+          <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+            <div class="row" style="margin-bottom:5px">
+              <div class="row" style="gap:6px">
+                <div style="font-size:13px;font-weight:500;color:var(--text)">${fmtD(c.data)}</div>
+                <span style="font-size:9px;padding:2px 6px;border-radius:4px;background:${c.status==='a-pagar'?'#92400e55':'#16653455'};color:${c.status==='a-pagar'?'var(--amber)':'var(--green)'};">${c.status==='a-pagar'?'A PAGAR':'PAGO'}</span>
+              </div>
+              <div class="row" style="gap:8px">
+                <div style="font-size:14px;color:${c.status==='a-pagar'?'var(--amber)':'var(--green)'};font-weight:500">${fmt$(recTotal(c))}</div>
+                <button class="btn-danger" style="background:#0a2a0a;color:var(--blue)" data-edit-col="${c.id}">✎</button>
+                <button class="btn-danger" data-del-col="${c.id}">✕</button>
+              </div>
             </div>
-            <div class="row" style="gap:8px">
-              <div style="font-size:14px;color:${c.status==='a-pagar'?'var(--amber)':'var(--green)'};font-weight:500">${fmt$(recTotal(c))}</div>
-              <button class="btn-danger" style="background:#0a2a0a;color:var(--blue)" data-edit-col="${c.id}">✎</button>
-              <button class="btn-danger" data-del-col="${c.id}">✕</button>
-            </div>
-          </div>
-          ${c.merc_g_q>0?`<div style="font-size:11px;color:var(--blue);margin-bottom:2px">Mercado: ${c.merc_g_q}cx G @ ${fmt$(c.merc_g_p)} = ${fmt$(recMerc(c))}</div>`:''}
-          ${(c.cea_g_q>0||c.cea_m_q>0||c.cea_mi_q>0)?`<div style="font-size:11px;color:var(--amber)">CEASA: ${[c.cea_g_q>0&&`${c.cea_g_q}cx G`,c.cea_m_q>0&&`${c.cea_m_q}cx M`,c.cea_mi_q>0&&`${c.cea_mi_q}cx mi`].filter(Boolean).join(' · ')} = ${fmt$(recCeasa(c))}</div>`:''}
-        </div>`).join('')}
+            ${c.merc_g_q>0?`<div style="font-size:11px;color:var(--blue);margin-bottom:2px">Mercado: ${c.merc_g_q}cx G @ ${fmt$(c.merc_g_p)} = ${fmt$(recMerc(c))}</div>`:''}
+            ${(c.cea_g_q>0||c.cea_m_q>0||c.cea_mi_q>0)?`<div style="font-size:11px;color:var(--amber)">CEASA: ${[c.cea_g_q>0&&`${c.cea_g_q}cx G`,c.cea_m_q>0&&`${c.cea_m_q}cx M`,c.cea_mi_q>0&&`${c.cea_mi_q}cx mi`].filter(Boolean).join(' · ')} = ${fmt$(recCeasa(c))}</div>`:''}
+          </div>`).join('')}
+        ${btnVerMais(S.verMais.colheitas, recentes.length, 'colheitas')}
+      `}
     </div>
   </div>`;
 }
@@ -450,6 +481,7 @@ function renderCustos() {
       return {cat, total:cusMes.filter(c=>c.categoria===cat).reduce((a,c)=>a+c.valor,0), subs};
     })
     .filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
+
   const recentes = [...S.custos].sort((a,b)=>b.data.localeCompare(a.data));
   const aVencer = recentes.filter(c=>{
     if(c.data<=today()) return false;
@@ -458,19 +490,73 @@ function renderCustos() {
   });
   const passados = recentes.filter(c=>c.data<=today());
 
+  const visivelVencer = S.verMais.vencer ? aVencer : aVencer.slice(0, LISTA_N);
+  const visivelCustos = S.verMais.custos ? passados : passados.slice(0, LISTA_N);
+
+  // Toggle sub-view Lançar / Catálogo
+  const tabToggle = `<div class="pill-toggle">
+    <button data-custo-view="lancar" class="pill-btn${S.custoView==='lancar'?' active':''}">Lançar</button>
+    <button data-custo-view="produtos" class="pill-btn${S.custoView==='produtos'?' active':''}">Catálogo (${S.produtos.length})</button>
+  </div>`;
+
+  if(S.custoView === 'produtos') {
+    return `<div class="pad">${tabToggle}${renderCatalogo()}</div>`;
+  }
+
+  // ── Opções do dropdown de produto
+  const prodOptions = S.produtos
+    .slice().sort((a,b)=>a.nome.localeCompare(b.nome))
+    .map(p=>`<option value="${p.id}" data-cat="${p.categoria}" data-sub="${p.subcategoria}" data-un="${p.unidade||'un.'}">${p.nome}${p.marca?' · '+p.marca:''} [${p.subcategoria}]</option>`)
+    .join('');
+
   return `<div class="pad">
+    ${tabToggle}
     <div class="card">
       <div style="font-size:14px;font-weight:500;color:var(--text);margin-bottom:14px">Registrar Custo</div>
-      <div class="grid2" style="margin-bottom:8px">
-        <div><label class="lbl">Data</label><input type="date" id="cus-data" value="${today()}"></div>
-        <div><label class="lbl">Categoria</label><select id="cus-cat">${CAT_INSUMOS.map(c=>`<option>${c}</option>`).join('')}</select></div>
-      </div>
+
+      <!-- Data — sempre visível -->
       <div style="margin-bottom:8px">
-        <label class="lbl">Subcategoria</label>
-        <select id="cus-subcat">${CAT_CUSTOS[CAT_INSUMOS[0]].map(s=>`<option>${s}</option>`).join('')}</select>
+        <label class="lbl">Data</label>
+        <input type="date" id="cus-data" value="${today()}">
       </div>
-      <div style="margin-bottom:8px"><label class="lbl">Descrição</label><input type="text" id="cus-desc" placeholder="ex: Verango Prime Bayer 1L" required></div>
-      <div style="margin-bottom:8px"><label class="lbl">Valor (R$)</label><input type="number" min="0" step="0.01" id="cus-val" placeholder="0,00"></div>
+
+      <!-- Dropdown produto — visível quando há produtos cadastrados -->
+      ${S.produtos.length > 0 ? `
+      <div style="margin-bottom:8px">
+        <label class="lbl">Produto do Catálogo</label>
+        <select id="cus-prod">
+          <option value="">— lançamento avulso —</option>
+          ${prodOptions}
+        </select>
+      </div>` : ''}
+
+      <!-- Campos produto (oculto por padrão, aparece ao selecionar produto) -->
+      <div id="cus-prod-fields" style="display:none">
+        <div class="prod-info-box">
+          <div style="font-size:9px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:.08em">Produto selecionado</div>
+          <div id="cus-prod-meta" style="font-size:11px;color:var(--greenD)"></div>
+        </div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div><label class="lbl" id="cus-qtd-lbl">Qtd</label><input type="number" id="cus-qtd" placeholder="0" min="0" step="0.01"></div>
+          <div><label class="lbl">R$/Un.</label><input type="number" id="cus-precounit" placeholder="0,00" min="0" step="0.01"></div>
+        </div>
+        <div class="total-box">
+          <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Total</span>
+          <span style="font-size:16px;font-weight:500;color:var(--green)" id="cus-total-val">R$ 0,00</span>
+        </div>
+      </div>
+
+      <!-- Campos avulso (visíveis por padrão) -->
+      <div id="cus-avulso-fields">
+        <div class="grid2" style="margin-bottom:8px">
+          <div><label class="lbl">Categoria</label><select id="cus-cat">${CAT_INSUMOS.map(c=>`<option>${c}</option>`).join('')}</select></div>
+          <div><label class="lbl">Subcategoria</label><select id="cus-subcat">${CAT_CUSTOS[CAT_INSUMOS[0]].map(s=>`<option>${s}</option>`).join('')}</select></div>
+        </div>
+        <div style="margin-bottom:8px"><label class="lbl">Descrição</label><input type="text" id="cus-desc" placeholder="ex: Verango Prime Bayer 1L" required></div>
+        <div style="margin-bottom:8px"><label class="lbl">Valor (R$)</label><input type="number" min="0" step="0.01" id="cus-val" placeholder="0,00"></div>
+      </div>
+
+      <!-- Repetir — sempre visível -->
       <div style="margin-bottom:8px"><label class="lbl">Repetir</label><select id="cus-repetir"><option value="nao">Não repete</option><option value="quinzenal">Quinzenal</option><option value="mensal">Mensal</option><option value="parcelado">Parcelado</option></select></div>
       <div id="cus-parcelas-box" style="display:none;margin-bottom:8px"><label class="lbl">Nº de Parcelas</label><input type="number" min="2" max="60" id="cus-parcelas" placeholder="ex: 6"></div>
       <button class="btn btn-red" id="btn-salvar-cus">Registrar Custo</button>
@@ -490,17 +576,23 @@ function renderCustos() {
             </div>
           </div>
           <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:var(--orange)"></div></div>
+          ${x.subs.length>0?`<div style="margin-top:4px">${x.subs.map(s=>`
+            <div class="row" style="padding:2px 0;font-size:10px">
+              <div style="color:var(--muted);padding-left:8px">↳ ${s.sub}</div>
+              <div style="color:var(--orange)">${fmt$(s.total)}</div>
+            </div>`).join('')}</div>`:''}
         </div>`;
       }).join('')}
     </div>`:''}
 
     ${aVencer.length>0?`<div class="card" style="border-color:#92400e">
       <div class="card-title" style="color:var(--amber)">A Vencer</div>
-      ${(S.verMaisVencer?aVencer:aVencer.slice(0,5)).map(c=>`
+      ${visivelVencer.map(c=>`
         <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)">
           <div style="flex:1;min-width:0;margin-right:8px">
-            <div style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.descricao||c.categoria}</div>
+            <div style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nomeCusto(c)}</div>
             <div style="font-size:10px;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap"><span>${fmtD(c.data)}</span><span>·</span><span>${c.categoria}${c.subcategoria?" › "+c.subcategoria:""}</span>${c.repetir&&c.repetir!=="nao"?`<span style="color:var(--amber)">${c.repetir==="mensal"?"↻ Mensal":c.repetir==="quinzenal"?"↻ Quinzenal":"Parcela "+c.parcelaNum+"/"+c.parcelasTotal}</span>`:""}</div>
+            ${detalheCusto(c)?`<div style="font-size:10px;color:var(--muted);margin-top:1px">${detalheCusto(c)}</div>`:''}
           </div>
           <div class="row" style="gap:8px;flex-shrink:0">
             <div style="font-size:13px;color:var(--amber);font-weight:500">${fmt$(c.valor)}</div>
@@ -508,25 +600,66 @@ function renderCustos() {
             <button class="btn-danger" data-del-cus="${c.id}">✕</button>
           </div>
         </div>`).join('')}
-      ${aVencer.length>5?`<button id="btn-ver-mais-vencer" style="width:100%;padding:10px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;margin-top:8px">${S.verMaisVencer?'Ver menos':'Ver mais '+(aVencer.length-5)+' compromisso'+(aVencer.length-5>1?'s':'')}</button>`:''}
+      ${btnVerMais(S.verMais.vencer, aVencer.length, 'vencer')}
     </div>`:''}
+
     <div class="card">
       <div class="card-title">Histórico</div>
-      ${passados.length===0?'<div class="empty">Nenhum custo registrado ainda.</div>':
-      passados.map(c=>`
-        <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)">
-          <div style="flex:1;min-width:0;margin-right:8px">
-            <div style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.descricao||c.categoria}${c.repetir==='mensal'?' ↻':c.repetir==='quinzenal'?' ↻':c.repetir==='parcelado'?' ('+c.parcelaNum+'/'+c.parcelasTotal+')':''}</div>
-            <div style="font-size:10px;color:var(--muted)">${fmtD(c.data)} · ${c.categoria}${c.subcategoria?" › "+c.subcategoria:""}</div>
-          </div>
-          <div class="row" style="gap:8px;flex-shrink:0">
-            <div style="font-size:13px;color:var(--orange);font-weight:500">${fmt$(c.valor)}</div>
-            <button class="btn-danger" style="background:#0a2a0a;color:var(--blue)" data-edit-cus="${c.id}">✎</button>
-            <button class="btn-danger" data-del-cus="${c.id}">✕</button>
-          </div>
-        </div>`).join('')}
+      ${passados.length===0?'<div class="empty">Nenhum custo registrado ainda.</div>':`
+        ${visivelCustos.map(c=>`
+          <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)">
+            <div style="flex:1;min-width:0;margin-right:8px">
+              <div style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nomeCusto(c)}${c.repetir==='mensal'?' ↻':c.repetir==='quinzenal'?' ↻':c.repetir==='parcelado'?' ('+c.parcelaNum+'/'+c.parcelasTotal+')':''}</div>
+              <div style="font-size:10px;color:var(--muted)">${fmtD(c.data)} · ${c.categoria}${c.subcategoria?" › "+c.subcategoria:""}</div>
+              ${detalheCusto(c)?`<div style="font-size:10px;color:var(--muted)">${detalheCusto(c)}</div>`:''}
+            </div>
+            <div class="row" style="gap:8px;flex-shrink:0">
+              <div style="font-size:13px;color:var(--orange);font-weight:500">${fmt$(c.valor)}</div>
+              <button class="btn-danger" style="background:#0a2a0a;color:var(--blue)" data-edit-cus="${c.id}">✎</button>
+              <button class="btn-danger" data-del-cus="${c.id}">✕</button>
+            </div>
+          </div>`).join('')}
+        ${btnVerMais(S.verMais.custos, passados.length, 'custos')}
+      `}
     </div>
   </div>`;
+}
+
+// ─── CATÁLOGO DE PRODUTOS ─────────────────────────────────────────────────────
+function renderCatalogo() {
+  const porCat = CAT_INSUMOS
+    .map(cat=>({ cat, prods: S.produtos.filter(p=>p.categoria===cat).sort((a,b)=>a.nome.localeCompare(b.nome)) }))
+    .filter(x=>x.prods.length>0);
+
+  return `
+    <div class="row" style="margin-bottom:4px">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">${S.produtos.length} produto${S.produtos.length!==1?'s':''} cadastrado${S.produtos.length!==1?'s':''}</div>
+      <button data-novo-produto class="btn btn-green btn-sm">+ Produto</button>
+    </div>
+
+    ${S.produtos.length===0?`<div class="card"><div class="empty">Nenhum produto cadastrado.<br>Adicione produtos para agilizar<br>o lançamento de custos.</div></div>`:''}
+
+    ${porCat.map(({cat, prods})=>`
+      <div class="card" style="padding:10px 14px">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">${cat}</div>
+        ${prods.map(p=>`
+          <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.nome}</div>
+              <div style="font-size:10px;color:var(--muted);margin-top:2px;display:flex;gap:6px;flex-wrap:wrap">
+                <span>${p.subcategoria}</span>
+                <span>· ${p.unidade||'—'}</span>
+                ${p.marca?`<span style="color:var(--greenD)">· ${p.marca}</span>`:''}
+                ${p.principioAtivo?`<span>· ${p.principioAtivo}${p.concentracao?' '+p.concentracao:''}</span>`:''}
+              </div>
+            </div>
+            <div class="row" style="gap:6px;flex-shrink:0">
+              <button class="btn-danger" style="background:#0a2a0a;color:var(--blue)" data-edit-prod="${p.id}">✎</button>
+              <button class="btn-danger" data-del-prod="${p.id}">✕</button>
+            </div>
+          </div>`).join('')}
+      </div>`).join('')}
+  `;
 }
 
 // ─── ESTUFAS ─────────────────────────────────────────────────────────────────
@@ -611,7 +744,6 @@ function renderEstufas() {
                   <div><label class="lbl">1ª Colheita</label><input type="date" data-ciclo-field="${h.id}" data-field="primeiraColheita" value="${h.primeiraColheita||''}" style="font-size:12px"></div>
                   <div><label class="lbl">Última Colheita</label><input type="date" data-ciclo-field="${h.id}" data-field="ultimaColheita" value="${h.ultimaColheita||''}" style="font-size:12px"></div>
                 </div>
-
                 ${(h.primeiraColheita&&h.ultimaColheita)?`<div style="font-size:10px;color:var(--greenD);margin-bottom:6px">Período de colheita: ${diasEntre(h.primeiraColheita,h.ultimaColheita)} dias</div>`:''}
                 ${h.obs?`<div style="font-size:10px;color:var(--muted);margin-bottom:6px">${h.obs}</div>`:''}
                 ${hOccs.length>0?`<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">${hOccs.length} ocorrência(s)</div>
@@ -632,7 +764,6 @@ function renderEstufas() {
 
 // ─── ANÁLISES ────────────────────────────────────────────────────────────────
 function renderAnalises() {
-  // Agrupa por mês
   const meses = [...new Set([...S.colheitas.map(c=>mesDe(c.data)),...S.custos.filter(c=>c.data<=today()).map(c=>mesDe(c.data))].filter(Boolean))].filter(m=>m<=mesAtual()).sort().slice(-6);
 
   const dadosMeses = meses.map(m=>({
@@ -647,10 +778,8 @@ function renderAnalises() {
   const maxCus = Math.max(...dadosMeses.map(d=>d.cus),1);
   const maxBar = Math.max(maxRec,maxCus);
 
-  // Evolução preço médio por colheita
   const colOrdenadas = [...S.colheitas].sort((a,b)=>a.data.localeCompare(b.data)).slice(-10);
 
-  // Custo acumulado por categoria (últimos 3 meses)
   const m3 = meses.slice(-3);
   const cusCat = CAT_INSUMOS.map(cat=>({
     cat,
@@ -658,7 +787,6 @@ function renderAnalises() {
   })).filter(x=>x.total>0).sort((a,b)=>b.total-a.total).slice(0,8);
   const maxCat = Math.max(...cusCat.map(x=>x.total),1);
 
-  // Alocação por estufa-dias
   const alocacao = calcAlocacao();
 
   const totalAnual = {
@@ -667,7 +795,6 @@ function renderAnalises() {
   };
 
   return `<div class="pad">
-    <!-- Resultado anual -->
     <div class="card">
       <div class="card-title">Resultado Acumulado</div>
       <div class="grid2">
@@ -678,7 +805,6 @@ function renderAnalises() {
       </div>
     </div>
 
-    <!-- Receita vs Custo por mês -->
     ${dadosMeses.length>0?`<div class="card">
       <div class="card-title">Receita × Custo (últimos 6 meses)</div>
       <div style="display:flex;gap:12px;font-size:9px;color:var(--muted);margin-bottom:8px">
@@ -703,7 +829,6 @@ function renderAnalises() {
       </div>
     </div>`:'<div class="card"><div class="empty">Sem dados suficientes para análise mensal.</div></div>'}
 
-    <!-- Mercado vs CEASA -->
     ${dadosMeses.length>0?`<div class="card">
       <div class="card-title">Mercado × CEASA por Mês</div>
       <div style="display:flex;gap:12px;font-size:9px;color:var(--muted);margin-bottom:8px">
@@ -728,7 +853,6 @@ function renderAnalises() {
       }).join('')}
     </div>`:''}
 
-    <!-- Custo por categoria -->
     ${cusCat.length>0?`<div class="card">
       <div class="card-title">Custo por Categoria (últimos 3 meses)</div>
       ${cusCat.map(x=>`
@@ -741,7 +865,6 @@ function renderAnalises() {
         </div>`).join('')}
     </div>`:''}
 
-    <!-- Evolução preço médio -->
     ${colOrdenadas.length>1?`<div class="card">
       <div class="card-title">Preço Médio por Colheita (últimas 10)</div>
       ${colOrdenadas.filter(c=>c.merc_g_q>0).length>0?`
@@ -758,7 +881,6 @@ function renderAnalises() {
       `:''}
     </div>`:''}
 
-    <!-- Produção estimada por estufa -->
     ${alocacao.length>0?`<div class="card">
       <div class="card-title">Produção Estimada por Estufa (estufa-dias)</div>
       <div style="font-size:10px;color:var(--muted);margin-bottom:10px">Baseado em proporção de dias em colheita por ciclo</div>
@@ -796,17 +918,12 @@ function renderLinhaPreco(pts, color) {
 function calcAlocacao() {
   const colheitas = S.colheitas;
   if(colheitas.length===0) return [];
-
-  // Para cada colheita, identifica estufas ativas naquele dia
-  // (entre primeiraColheita e ultimaColheita do ciclo)
-  // Só usa ciclos que têm AMBAS as datas preenchidas ou ciclo ativo com primeiraColheita
   const estufaCaixas = {};
   colheitas.forEach(col=>{
     const dia = col.data;
     const estufasAtivas = S.ciclos.filter(ci=>{
       if(!ci.primeiraColheita) return false;
       const inicio = ci.primeiraColheita;
-      // ciclo ativo sem ultima colheita: considera ativo até hoje
       const fim = ci.ultimaColheita || (!ci.encerrado ? today() : null);
       if(!fim) return false;
       return dia >= inicio && dia <= fim;
@@ -817,7 +934,6 @@ function calcAlocacao() {
       estufaCaixas[ci.estufa] = (estufaCaixas[ci.estufa]||0) + cxPorEstufa;
     });
   });
-
   const totalCx = Object.values(estufaCaixas).reduce((a,v)=>a+v,0);
   if(!totalCx) return [];
   return Object.entries(estufaCaixas)
@@ -826,6 +942,25 @@ function calcAlocacao() {
 }
 
 // ─── MODAIS ──────────────────────────────────────────────────────────────────
+function renderProdutoForm(p = {}) {
+  const cat = p.categoria || CAT_INSUMOS[0];
+  return `
+    <div style="margin-bottom:8px"><label class="lbl">Nome*</label><input type="text" id="m-prod-nome" value="${p.nome||''}" placeholder="ex: Sivanto Prime, Gesso Agrícola"></div>
+    <div class="grid2" style="margin-bottom:8px">
+      <div><label class="lbl">Categoria*</label><select id="m-prod-cat">${CAT_INSUMOS.map(c=>`<option${c===cat?' selected':''}>${c}</option>`).join('')}</select></div>
+      <div><label class="lbl">Subcategoria*</label><select id="m-prod-subcat">${(CAT_CUSTOS[cat]||[]).map(s=>`<option${s===p.subcategoria?' selected':''}>${s}</option>`).join('')}</select></div>
+    </div>
+    <div class="grid2" style="margin-bottom:8px">
+      <div><label class="lbl">Unidade*</label><input type="text" id="m-prod-unidade" value="${p.unidade||''}" placeholder="L, kg, sc, un, cx"></div>
+      <div><label class="lbl">Marca</label><input type="text" id="m-prod-marca" value="${p.marca||''}" placeholder="opcional"></div>
+    </div>
+    <div class="grid2" style="margin-bottom:8px">
+      <div><label class="lbl">Princípio Ativo</label><input type="text" id="m-prod-pa" value="${p.principioAtivo||''}" placeholder="defensivos"></div>
+      <div><label class="lbl">Concentração</label><input type="text" id="m-prod-conc" value="${p.concentracao||''}" placeholder="ex: 200 g/L"></div>
+    </div>
+  `;
+}
+
 function renderModal() {
   const {modal, modalData} = S;
   let body = '';
@@ -867,20 +1002,54 @@ function renderModal() {
 
   if(modal==='editar-cus') {
     const c = S.custos.find(x=>x.id===modalData.cusId)||{};
-    const cat = c.categoria||CAT_INSUMOS[0];
-    const subs = CAT_CUSTOS[cat]||[];
-    body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Editar Custo</div>
-      <div class="grid2" style="margin-bottom:8px">
-        <div><label class="lbl">Data</label><input type="date" id="ec-cus-data" value="${c.data||today()}"></div>
-        <div><label class="lbl">Categoria</label><select id="ec-cus-cat">${CAT_INSUMOS.map(x=>`<option${x===cat?' selected':''}>${x}</option>`).join('')}</select></div>
-      </div>
-      <div style="margin-bottom:8px">
-        <label class="lbl">Subcategoria</label>
-        <select id="ec-cus-subcat">${(CAT_CUSTOS[cat]||[]).map(s=>`<option${s===c.subcategoria?' selected':''}>${s}</option>`).join('')}</select>
-      </div>
-      <div style="margin-bottom:8px"><label class="lbl">Descrição</label><input type="text" id="ec-cus-desc" value="${c.descricao||''}" placeholder="ex: Verango Prime Bayer 1L"></div>
-      <div style="margin-bottom:16px"><label class="lbl">Valor (R$)</label><input type="number" min="0" step="0.01" id="ec-cus-val" value="${c.valor||''}"></div>
-      <button class="btn btn-red" id="btn-salvar-edit-cus">Salvar Alterações</button>`;
+
+    if(c.produtoId) {
+      // Custo com produto do catálogo
+      body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Editar Custo</div>
+        <div style="margin-bottom:8px"><label class="lbl">Data</label><input type="date" id="ec-cus-data" value="${c.data||today()}"></div>
+        <div class="prod-info-box" style="margin-bottom:8px">
+          <div style="font-size:9px;color:var(--muted);margin-bottom:2px;text-transform:uppercase">Produto</div>
+          <div style="font-size:13px;color:var(--text);font-weight:500">${c.nomeProduto||'—'}</div>
+          <div style="font-size:9px;color:var(--muted);margin-top:2px">${c.categoria||''} › ${c.subcategoria||''}</div>
+        </div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div><label class="lbl">Qtd (${c.unidadeProduto||'un.'})</label><input type="number" id="ec-cus-qtd" value="${c.qtd||''}" min="0" step="0.01"></div>
+          <div><label class="lbl">R$/Un.</label><input type="number" id="ec-cus-precounit" value="${c.precoUnit||''}" min="0" step="0.01"></div>
+        </div>
+        <div class="total-box" style="margin-bottom:16px">
+          <span style="font-size:10px;color:var(--muted);text-transform:uppercase">Total</span>
+          <span style="font-size:16px;font-weight:500;color:var(--green)" id="ec-cus-total-val">${fmt$(c.valor||0)}</span>
+        </div>
+        <button class="btn btn-red" id="btn-salvar-edit-cus">Salvar Alterações</button>`;
+    } else {
+      // Custo avulso (legado)
+      const cat = c.categoria||CAT_INSUMOS[0];
+      body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Editar Custo</div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div><label class="lbl">Data</label><input type="date" id="ec-cus-data" value="${c.data||today()}"></div>
+          <div><label class="lbl">Categoria</label><select id="ec-cus-cat">${CAT_INSUMOS.map(x=>`<option${x===cat?' selected':''}>${x}</option>`).join('')}</select></div>
+        </div>
+        <div style="margin-bottom:8px">
+          <label class="lbl">Subcategoria</label>
+          <select id="ec-cus-subcat">${(CAT_CUSTOS[cat]||[]).map(s=>`<option${s===c.subcategoria?' selected':''}>${s}</option>`).join('')}</select>
+        </div>
+        <div style="margin-bottom:8px"><label class="lbl">Descrição</label><input type="text" id="ec-cus-desc" value="${c.descricao||''}" placeholder="ex: Verango Prime Bayer 1L"></div>
+        <div style="margin-bottom:16px"><label class="lbl">Valor (R$)</label><input type="number" min="0" step="0.01" id="ec-cus-val" value="${c.valor||''}"></div>
+        <button class="btn btn-red" id="btn-salvar-edit-cus">Salvar Alterações</button>`;
+    }
+  }
+
+  if(modal==='novo-produto') {
+    body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Novo Produto</div>
+      ${renderProdutoForm()}
+      <button class="btn btn-green" id="btn-salvar-prod">Salvar Produto</button>`;
+  }
+
+  if(modal==='editar-produto') {
+    const p = S.produtos.find(x=>x.id===modalData.produtoId)||{};
+    body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Editar Produto</div>
+      ${renderProdutoForm(p)}
+      <button class="btn btn-green" id="btn-salvar-edit-prod">Salvar Alterações</button>`;
   }
 
   if(modal==='novo-ciclo') {
@@ -1002,13 +1171,60 @@ function renderModal() {
   </div>`;
 }
 
-// ─── Events ──────────────────────────────────────────────────────────────────
+// ─── Events helpers ───────────────────────────────────────────────────────────
 function updateSubcat() {
   const cat = document.getElementById('cus-cat')?.value;
   const sub = document.getElementById('cus-subcat');
   if(!cat||!sub) return;
-  const opts = CAT_CUSTOS[cat]||[];
-  sub.innerHTML = opts.map(s=>`<option>${s}</option>`).join('');
+  sub.innerHTML = (CAT_CUSTOS[cat]||[]).map(s=>`<option>${s}</option>`).join('');
+}
+
+function updateProdSubcat() {
+  const cat = document.getElementById('m-prod-cat')?.value;
+  const sub = document.getElementById('m-prod-subcat');
+  if(!cat||!sub) return;
+  const cur = sub.value;
+  sub.innerHTML = (CAT_CUSTOS[cat]||[]).map(s=>`<option${s===cur?' selected':''}>${s}</option>`).join('');
+}
+
+function onCusProdChange() {
+  const sel = document.getElementById('cus-prod');
+  if(!sel) return;
+  const val = sel.value;
+  const prodFields = document.getElementById('cus-prod-fields');
+  const avulsoFields = document.getElementById('cus-avulso-fields');
+  if(val) {
+    const opt = sel.selectedOptions[0];
+    const cat = opt.dataset.cat||'';
+    const sub = opt.dataset.sub||'';
+    const un  = opt.dataset.un||'un.';
+    const meta = document.getElementById('cus-prod-meta');
+    if(meta) meta.textContent = `${cat} › ${sub} · unid.: ${un}`;
+    const lbl = document.getElementById('cus-qtd-lbl');
+    if(lbl) lbl.textContent = `Qtd (${un})`;
+    if(prodFields) prodFields.style.display='block';
+    if(avulsoFields) avulsoFields.style.display='none';
+    // reset total
+    const tv = document.getElementById('cus-total-val');
+    if(tv) tv.textContent='R$ 0,00';
+  } else {
+    if(prodFields) prodFields.style.display='none';
+    if(avulsoFields) avulsoFields.style.display='block';
+  }
+}
+
+function updateCusTotalProd() {
+  const qtd = +document.getElementById('cus-qtd')?.value||0;
+  const pu  = +document.getElementById('cus-precounit')?.value||0;
+  const el  = document.getElementById('cus-total-val');
+  if(el) el.textContent = fmt$(qtd*pu);
+}
+
+function updateEditCusTotalProd() {
+  const qtd = +document.getElementById('ec-cus-qtd')?.value||0;
+  const pu  = +document.getElementById('ec-cus-precounit')?.value||0;
+  const el  = document.getElementById('ec-cus-total-val');
+  if(el) el.textContent = fmt$(qtd*pu);
 }
 
 function confirmar(msg, onSim) {
@@ -1041,6 +1257,19 @@ function attachEvents() {
   const ov = document.getElementById('modal-overlay');
   if(ov) ov.addEventListener('click',e=>{ if(e.target===ov||e.target.dataset.closeModal!==undefined){ S.modal=null; render(); }});
 
+  // ── Sub-view toggle Custos
+  document.querySelectorAll('[data-custo-view]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ S.custoView=btn.dataset.custoView; render(); });
+  });
+
+  // ── Ver mais unificado
+  document.querySelectorAll('[data-vermais]').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const key = btn.dataset.vermais;
+      if(key in S.verMais) { S.verMais[key]=!S.verMais[key]; render(); }
+    });
+  });
+
   // colheita preview
   const colInputs = ['merc-g-q','merc-g-p','cea-g-q','cea-g-p','cea-m-q','cea-m-p','cea-mi-q','cea-mi-p'];
   colInputs.forEach(id=>{ const el=document.getElementById(id); if(el) el.addEventListener('input',updateColPreview); });
@@ -1049,9 +1278,25 @@ function attachEvents() {
   const btnCol = document.getElementById('btn-salvar-col');
   if(btnCol) btnCol.addEventListener('click', salvarColheita);
 
-  // subcategoria update
+  // subcategoria update (avulso)
   const cusCat = document.getElementById('cus-cat');
   if(cusCat) cusCat.addEventListener('change', updateSubcat);
+
+  // produto dropdown
+  const cusProd = document.getElementById('cus-prod');
+  if(cusProd) cusProd.addEventListener('change', onCusProdChange);
+
+  // qtd + precounit live total
+  ['cus-qtd','cus-precounit'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.addEventListener('input', updateCusTotalProd);
+  });
+
+  // edit custo total live (produto)
+  ['ec-cus-qtd','ec-cus-precounit'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.addEventListener('input', updateEditCusTotalProd);
+  });
 
   // repetir toggle
   const cusRepetir = document.getElementById('cus-repetir');
@@ -1084,7 +1329,7 @@ function attachEvents() {
     btn.addEventListener('click',()=>{ S.modal='editar-ciclo'; S.modalData={cicloId:btn.dataset.editarCiclo, estufa:+btn.dataset.editarCicloEstufa}; render(); });
   });
 
-  // tipo muda radio toggle no modal editar ciclo
+  // tipo muda radio toggle modal editar ciclo
   document.querySelectorAll('input[name="ec-tipo-muda"]').forEach(r=>{
     r.addEventListener('change',()=>{
       const box = document.getElementById('ec-pe-box');
@@ -1096,7 +1341,7 @@ function attachEvents() {
   const btnEditCiclo = document.getElementById('btn-salvar-edit-ciclo');
   if(btnEditCiclo) btnEditCiclo.addEventListener('click', salvarEditCiclo);
 
-  // status pagamento toggle visual - novo e editar
+  // status pagamento toggle visual
   document.querySelectorAll('input[name="col-status"], input[name="ec-col-status"]').forEach(r=>{
     r.addEventListener('change',()=>{
       const prefix = r.name==='col-status' ? 'lbl-col' : 'lbl-ec-col';
@@ -1113,23 +1358,7 @@ function attachEvents() {
     });
   });
 
-  // status pagamento toggle visual - novo e editar (placeholder kept for compat)
-  document.querySelectorAll('input[name="col-status-old"]').forEach(r=>{
-    r.addEventListener('change',()=>{
-      const pago = document.getElementById('lbl-col-pago');
-      const apagar = document.getElementById('lbl-col-apagar');
-      if(!pago||!apagar) return;
-      if(r.value==='pago'){
-        pago.style.cssText='display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;cursor:pointer;flex:1;background:#16653480;border:2px solid var(--green);border-radius:8px;padding:10px;color:var(--green);font-family:DM Mono,monospace';
-        apagar.style.cssText='display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;cursor:pointer;flex:1;background:#080e08;border:2px solid #1a3a1a;border-radius:8px;padding:10px;color:#4b5563;font-family:DM Mono,monospace';
-      } else {
-        apagar.style.cssText='display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;cursor:pointer;flex:1;background:#92400e55;border:2px solid var(--amber);border-radius:8px;padding:10px;color:var(--amber);font-family:DM Mono,monospace';
-        pago.style.cssText='display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;cursor:pointer;flex:1;background:#080e08;border:2px solid #1a3a1a;border-radius:8px;padding:10px;color:#4b5563;font-family:DM Mono,monospace';
-      }
-    });
-  });
-
-  // tipo muda radio toggle
+  // tipo muda radio toggle novo ciclo
   document.querySelectorAll('input[name="m-tipo-muda"]').forEach(r=>{
     r.addEventListener('change',()=>{
       const box = document.getElementById('m-pe-box');
@@ -1158,7 +1387,7 @@ function attachEvents() {
   const btnAtualizarOcc = document.getElementById('btn-atualizar-occ');
   if(btnAtualizarOcc) btnAtualizarOcc.addEventListener('click', ()=>{ S.modalData={occId:S.modalData.occId}; atualizarOcorrencia(); });
 
-  // deletar ciclo do histórico
+  // deletar ciclo
   document.querySelectorAll('[data-del-ciclo]').forEach(btn=>{
     btn.addEventListener('click',()=>confirmar('Excluir este ciclo?',()=>deleteDoc(doc(db,'ciclos',btn.dataset.delCiclo))));
   });
@@ -1172,16 +1401,12 @@ function attachEvents() {
     });
   });
 
-  // ver mais a vencer
-  const btnVerMais = document.getElementById('btn-ver-mais-vencer');
-  if(btnVerMais) btnVerMais.addEventListener('click',()=>{ S.verMaisVencer=!S.verMaisVencer; render(); });
-
   // editar custo
   document.querySelectorAll('[data-edit-cus]').forEach(btn=>{
     btn.addEventListener('click',()=>{ S.modal='editar-cus'; S.modalData={cusId:btn.dataset.editCus}; render(); });
   });
 
-  // subcategoria update no modal editar custo
+  // subcategoria update no modal editar custo (avulso)
   const ecCusCat = document.getElementById('ec-cus-cat');
   if(ecCusCat) ecCusCat.addEventListener('change', ()=>{
     const cat = ecCusCat.value;
@@ -1207,8 +1432,36 @@ function attachEvents() {
   document.querySelectorAll('[data-del-cus]').forEach(btn=>{
     btn.addEventListener('click',()=>confirmar('Excluir este custo?',()=>deleteDoc(doc(db,'custos',btn.dataset.delCus))));
   });
+
+  // ── Produto: novo
+  document.querySelectorAll('[data-novo-produto]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ S.modal='novo-produto'; S.modalData={}; render(); });
+  });
+
+  // ── Produto: editar
+  document.querySelectorAll('[data-edit-prod]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ S.modal='editar-produto'; S.modalData={produtoId:btn.dataset.editProd}; render(); });
+  });
+
+  // ── Produto: deletar
+  document.querySelectorAll('[data-del-prod]').forEach(btn=>{
+    btn.addEventListener('click',()=>confirmar('Excluir este produto do catálogo?',()=>deleteDoc(doc(db,'produtos',btn.dataset.delProd))));
+  });
+
+  // ── Produto: categoria change no modal (atualiza subcategoria)
+  const mProdCat = document.getElementById('m-prod-cat');
+  if(mProdCat) mProdCat.addEventListener('change', updateProdSubcat);
+
+  // ── Produto: salvar novo
+  const btnSalvarProd = document.getElementById('btn-salvar-prod');
+  if(btnSalvarProd) btnSalvarProd.addEventListener('click', salvarProduto);
+
+  // ── Produto: salvar edição
+  const btnSalvarEditProd = document.getElementById('btn-salvar-edit-prod');
+  if(btnSalvarEditProd) btnSalvarEditProd.addEventListener('click', salvarEditProduto);
 }
 
+// ─── Update helpers ───────────────────────────────────────────────────────────
 function updateColPreview() {
   const g = id => +document.getElementById(id)?.value||0;
   const rec = g('merc-g-q')*g('merc-g-p') + g('cea-g-q')*g('cea-g-p') + g('cea-m-q')*g('cea-m-p') + g('cea-mi-q')*g('cea-mi-p');
@@ -1219,17 +1472,30 @@ function updateColPreview() {
   else { prev.style.display='none'; }
 }
 
+// ─── Salvar / Atualizar ───────────────────────────────────────────────────────
 async function salvarEditCus() {
-  const val = +document.getElementById('ec-cus-val')?.value;
-  const desc = document.getElementById('ec-cus-desc')?.value;
-  if(!val||!desc) return;
-  const updates = {
-    data: document.getElementById('ec-cus-data')?.value,
-    categoria: document.getElementById('ec-cus-cat')?.value,
-    subcategoria: document.getElementById('ec-cus-subcat')?.value||'',
-    descricao: desc,
-    valor: val,
-  };
+  const c = S.custos.find(x=>x.id===S.modalData.cusId)||{};
+  const data = document.getElementById('ec-cus-data')?.value;
+  if(!data) return;
+
+  let updates;
+  if(c.produtoId) {
+    const qtd = +document.getElementById('ec-cus-qtd')?.value;
+    const precoUnit = +document.getElementById('ec-cus-precounit')?.value;
+    if(!qtd||!precoUnit) return;
+    updates = { data, qtd, precoUnit, valor: qtd*precoUnit };
+  } else {
+    const val  = +document.getElementById('ec-cus-val')?.value;
+    const desc = document.getElementById('ec-cus-desc')?.value;
+    if(!val||!desc) return;
+    updates = {
+      data,
+      categoria:   document.getElementById('ec-cus-cat')?.value,
+      subcategoria:document.getElementById('ec-cus-subcat')?.value||'',
+      descricao:   desc,
+      valor:       val,
+    };
+  }
   const id = S.modalData.cusId;
   S.modal=null; render();
   await updateDoc(doc(db,'custos',id), updates);
@@ -1269,53 +1535,134 @@ async function salvarColheita() {
   await addDoc(collection(db,'colheitas'),entry);
   btn.textContent='✓ Salvo!';
   setTimeout(()=>{ btn.textContent='Registrar Colheita'; btn.disabled=false; },2000);
-  // reset fields
   ['merc-g-q','merc-g-p','cea-g-q','cea-g-p','cea-m-q','cea-m-p','cea-mi-q','cea-mi-p']
     .forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   document.getElementById('col-preview').style.display='none';
 }
 
 async function salvarCusto() {
-  const val = +document.getElementById('cus-val')?.value;
-  const desc = document.getElementById('cus-desc')?.value;
-  if(!val||!desc) return;
   const dataBase = document.getElementById('cus-data')?.value;
-  const repetir = document.getElementById('cus-repetir')?.value||'nao';
+  if(!dataBase) return;
+
+  const prodSel = document.getElementById('cus-prod');
+  const usandoProd = prodSel && prodSel.value;
+
+  let baseDoc;
+
+  if(usandoProd) {
+    const qtd       = +document.getElementById('cus-qtd')?.value;
+    const precoUnit = +document.getElementById('cus-precounit')?.value;
+    if(!qtd||!precoUnit) return;
+    const prod = S.produtos.find(p=>p.id===prodSel.value);
+    baseDoc = {
+      produtoId:      prodSel.value,
+      nomeProduto:    prod?.nome||'',
+      unidadeProduto: prod?.unidade||'',
+      categoria:      prod?.categoria||'',
+      subcategoria:   prod?.subcategoria||'',
+      qtd, precoUnit,
+      valor: qtd*precoUnit,
+    };
+  } else {
+    const val  = +document.getElementById('cus-val')?.value;
+    const desc = document.getElementById('cus-desc')?.value;
+    if(!val||!desc) return;
+    baseDoc = {
+      descricao:   desc,
+      categoria:   document.getElementById('cus-cat')?.value,
+      subcategoria:document.getElementById('cus-subcat')?.value||'',
+      valor: val,
+    };
+  }
+
+  const repetir   = document.getElementById('cus-repetir')?.value||'nao';
   const nParcelas = +document.getElementById('cus-parcelas')?.value||1;
-  const cat = document.getElementById('cus-cat')?.value;
-  const sub = document.getElementById('cus-subcat')?.value||'';
+
   const btn = document.getElementById('btn-salvar-cus');
   btn.textContent='Salvando...'; btn.disabled=true;
+
   const addMeses = (dataStr, n) => {
     const [y,m,d] = dataStr.split('-').map(Number);
     let mm=m+n, yy=y;
     while(mm>12){mm-=12;yy++;}
     return `${yy}-${String(mm).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   };
+
   if(repetir==='nao') {
-    await addDoc(collection(db,'custos'),{data:dataBase,categoria:cat,subcategoria:sub,descricao:desc,valor:val,repetir:'nao',createdAt:serverTimestamp()});
+    await addDoc(collection(db,'custos'),{...baseDoc,data:dataBase,repetir:'nao',createdAt:serverTimestamp()});
   } else if(repetir==='quinzenal') {
-    // gera 12 quinzenas (~6 meses)
     const [y,m,d] = dataBase.split('-').map(Number);
     let dt = new Date(Date.UTC(y,m-1,d));
     for(let i=0;i<12;i++){
       const s = dt.toISOString().slice(0,10);
-      await addDoc(collection(db,'custos'),{data:s,categoria:cat,subcategoria:sub,descricao:desc,valor:val,repetir:'quinzenal',parcelaNum:i+1,parcelasTotal:12,createdAt:serverTimestamp()});
+      await addDoc(collection(db,'custos'),{...baseDoc,data:s,repetir:'quinzenal',parcelaNum:i+1,parcelasTotal:12,createdAt:serverTimestamp()});
       dt = new Date(dt.getTime() + 15*864e5);
     }
   } else if(repetir==='mensal') {
-    for(let i=0;i<12;i++) await addDoc(collection(db,'custos'),{data:addMeses(dataBase,i),categoria:cat,subcategoria:sub,descricao:desc,valor:val,repetir:'mensal',parcelaNum:i+1,parcelasTotal:12,createdAt:serverTimestamp()});
+    for(let i=0;i<12;i++) await addDoc(collection(db,'custos'),{...baseDoc,data:addMeses(dataBase,i),repetir:'mensal',parcelaNum:i+1,parcelasTotal:12,createdAt:serverTimestamp()});
   } else if(repetir==='parcelado') {
-    for(let i=0;i<nParcelas;i++) await addDoc(collection(db,'custos'),{data:addMeses(dataBase,i),categoria:cat,subcategoria:sub,descricao:desc,valor:val,repetir:'parcelado',parcelaNum:i+1,parcelasTotal:nParcelas,createdAt:serverTimestamp()});
+    for(let i=0;i<nParcelas;i++) await addDoc(collection(db,'custos'),{...baseDoc,data:addMeses(dataBase,i),repetir:'parcelado',parcelaNum:i+1,parcelasTotal:nParcelas,createdAt:serverTimestamp()});
   }
+
   btn.textContent='✓ Salvo!';
   setTimeout(()=>{ btn.textContent='Registrar Custo'; btn.disabled=false; },2000);
-  document.getElementById('cus-val').value='';
-  document.getElementById('cus-desc').value='';
+
+  // reset form
+  if(usandoProd) {
+    if(prodSel) prodSel.value='';
+    ['cus-qtd','cus-precounit'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+    const tv = document.getElementById('cus-total-val');
+    if(tv) tv.textContent='R$ 0,00';
+    const pf = document.getElementById('cus-prod-fields');
+    const af = document.getElementById('cus-avulso-fields');
+    if(pf) pf.style.display='none';
+    if(af) af.style.display='block';
+  } else {
+    const v = document.getElementById('cus-val'); if(v) v.value='';
+    const d = document.getElementById('cus-desc'); if(d) d.value='';
+  }
   if(document.getElementById('cus-repetir')) document.getElementById('cus-repetir').value='nao';
   if(document.getElementById('cus-parcelas-box')) document.getElementById('cus-parcelas-box').style.display='none';
 }
 
+// ─── Produto CRUD ─────────────────────────────────────────────────────────────
+async function salvarProduto() {
+  const nome    = document.getElementById('m-prod-nome')?.value?.trim();
+  const unidade = document.getElementById('m-prod-unidade')?.value?.trim();
+  if(!nome||!unidade) return;
+  const entry = {
+    nome,
+    categoria:    document.getElementById('m-prod-cat')?.value||'',
+    subcategoria: document.getElementById('m-prod-subcat')?.value||'',
+    unidade,
+    marca:          document.getElementById('m-prod-marca')?.value?.trim()||'',
+    principioAtivo: document.getElementById('m-prod-pa')?.value?.trim()||'',
+    concentracao:   document.getElementById('m-prod-conc')?.value?.trim()||'',
+    createdAt: serverTimestamp(),
+  };
+  S.modal=null; render();
+  await addDoc(collection(db,'produtos'), entry);
+}
+
+async function salvarEditProduto() {
+  const nome    = document.getElementById('m-prod-nome')?.value?.trim();
+  const unidade = document.getElementById('m-prod-unidade')?.value?.trim();
+  if(!nome||!unidade) return;
+  const updates = {
+    nome,
+    categoria:    document.getElementById('m-prod-cat')?.value||'',
+    subcategoria: document.getElementById('m-prod-subcat')?.value||'',
+    unidade,
+    marca:          document.getElementById('m-prod-marca')?.value?.trim()||'',
+    principioAtivo: document.getElementById('m-prod-pa')?.value?.trim()||'',
+    concentracao:   document.getElementById('m-prod-conc')?.value?.trim()||'',
+  };
+  const id = S.modalData.produtoId;
+  S.modal=null; render();
+  await updateDoc(doc(db,'produtos',id), updates);
+}
+
+// ─── Ciclos ───────────────────────────────────────────────────────────────────
 async function salvarEditCiclo() {
   const plantio = document.getElementById('ec-plantio')?.value;
   if(!plantio) return;
@@ -1338,7 +1685,7 @@ async function salvarEditCiclo() {
 async function criarCiclo() {
   const plantio = document.getElementById('m-plantio')?.value;
   if(!plantio) return;
-  const estufa = S.modalData.estufa;
+  const estufa       = S.modalData.estufa;
   const variedade    = document.getElementById('m-variedade')?.value||'';
   const semeio       = document.getElementById('m-semeio')?.value||null;
   const qtdMudas     = +document.getElementById('m-qtd-mudas')?.value||null;
@@ -1360,7 +1707,7 @@ async function criarCiclo() {
 }
 
 async function encerrarCiclo() {
-  const cicloId = S.modalData.cicloId;
+  const cicloId  = S.modalData.cicloId;
   const ultimaCol = document.getElementById('m-ultima-col')?.value;
   const obs = document.getElementById('m-enc-obs')?.value||'';
   S.modal=null; render();
@@ -1375,11 +1722,11 @@ async function atualizarOcorrencia() {
   if(!desc) return;
   const sev = document.querySelector('input[name="m-occ-sev"]:checked')?.value||'leve';
   const updates = {
-    data: document.getElementById('m-occ-data')?.value,
-    tipo: document.getElementById('m-occ-tipo')?.value,
+    data:      document.getElementById('m-occ-data')?.value,
+    tipo:      document.getElementById('m-occ-tipo')?.value,
     descricao: desc, severidade: sev,
-    produto: document.getElementById('m-occ-prod')?.value||'',
-    dose: document.getElementById('m-occ-dose')?.value||'',
+    produto:   document.getElementById('m-occ-prod')?.value||'',
+    dose:      document.getElementById('m-occ-dose')?.value||'',
     resolucao: document.getElementById('m-occ-res')?.value||'',
   };
   S.modal=null; render();
@@ -1391,13 +1738,13 @@ async function salvarOcorrencia() {
   if(!desc) return;
   const sev = document.querySelector('input[name="m-occ-sev"]:checked')?.value||'leve';
   const entry = {
-    cicloId: S.modalData.cicloId,
-    estufa: S.modalData.estufa,
-    data: document.getElementById('m-occ-data')?.value,
-    tipo: document.getElementById('m-occ-tipo')?.value,
+    cicloId:   S.modalData.cicloId,
+    estufa:    S.modalData.estufa,
+    data:      document.getElementById('m-occ-data')?.value,
+    tipo:      document.getElementById('m-occ-tipo')?.value,
     descricao: desc, severidade: sev,
-    produto: document.getElementById('m-occ-prod')?.value||'',
-    dose: document.getElementById('m-occ-dose')?.value||'',
+    produto:   document.getElementById('m-occ-prod')?.value||'',
+    dose:      document.getElementById('m-occ-dose')?.value||'',
     resolucao: document.getElementById('m-occ-res')?.value||'',
     createdAt: serverTimestamp(),
   };
@@ -1440,13 +1787,12 @@ function renderPin(erro) {
 function initApp() {
   S.ready = false;
   render();
-  // start listeners
   startListeners();
 }
 
 // ─── Firebase listeners ───────────────────────────────────────────────────────
 let readyCount = 0;
-function checkReady() { readyCount++; if(readyCount>=4){ S.ready=true; render(); } }
+function checkReady() { readyCount++; if(readyCount>=5){ S.ready=true; render(); } }
 
 function startListeners() {
   readyCount = 0;
@@ -1454,6 +1800,7 @@ function startListeners() {
   onSnapshot(query(collection(db,'colheitas'),  orderBy('data','desc')),      snap=>{ S.colheitas  =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
   onSnapshot(query(collection(db,'custos'),     orderBy('data','desc')),      snap=>{ S.custos     =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
   onSnapshot(query(collection(db,'ocorrencias'),orderBy('data','desc')),      snap=>{ S.ocorrencias=snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
+  onSnapshot(query(collection(db,'produtos'),   orderBy('createdAt','desc')), snap=>{ S.produtos   =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
 }
 
 // Boot
