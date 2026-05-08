@@ -781,7 +781,8 @@ function renderAnalises() {
     cat,
     total:S.custos.filter(c=>m3.includes(mesDe(c.data))&&c.categoria===cat).reduce((a,c)=>a+c.valor,0)
   })).filter(x=>x.total>0).sort((a,b)=>b.total-a.total).slice(0,8);
-  const maxCat = Math.max(...cusCat.map(x=>x.total),1);
+  const maxCat  = Math.max(...cusCat.map(x=>x.total),1);
+  const totalCat = cusCat.reduce((a,x)=>a+x.total,0)||1;
 
   const alocacao = calcAlocacao();
 
@@ -854,7 +855,7 @@ function renderAnalises() {
       ${cusCat.map(x=>`
         <div style="margin-bottom:8px">
           <div class="row" style="margin-bottom:3px;font-size:11px">
-            <div style="color:var(--greenD);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1"><span style="color:var(--muted);margin-right:5px">${(x.total/maxCat*100).toFixed(0)}%</span>${x.cat}</div>
+            <div style="color:var(--greenD);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1"><span style="color:var(--muted);margin-right:5px">${(x.total/totalCat*100).toFixed(0)}%</span>${x.cat}</div>
             <div style="color:var(--orange);flex-shrink:0;margin-left:8px">${fmt$(x.total)}</div>
           </div>
           <div class="progress-bar"><div class="progress-fill" style="width:${x.total/maxCat*100}%;background:var(--orange)"></div></div>
