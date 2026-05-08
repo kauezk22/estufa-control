@@ -858,7 +858,7 @@ function renderAnalises() {
             <div style="color:var(--greenD);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1"><span style="color:var(--muted);margin-right:5px">${(x.total/totalCat*100).toFixed(0)}%</span>${x.cat}</div>
             <div style="color:var(--orange);flex-shrink:0;margin-left:8px">${fmt$(x.total)}</div>
           </div>
-          <div class="progress-bar"><div class="progress-fill" style="width:${x.total/maxCat*100}%;background:var(--orange)"></div></div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${x.total/totalCat*100}%;background:var(--orange)"></div></div>
         </div>`).join('')}
     </div>`:''}
 
