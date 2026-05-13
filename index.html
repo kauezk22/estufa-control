@@ -143,9 +143,10 @@ const S = {
   periodo: 'mes',
   verMais: { colheitas: false, custos: false, vencer: false },
   custoView: 'lancar',
-  fertTab: 'programa',   // 'programa' | 'semanas' | 'calendario'
+  fertTab: 'programa',
   fertEstufa: null,
   fertSemana: 3,
+  fertCurva: 'marco-alvarenga',
   modal: null,
   modalData: {},
   ciclos: [],
@@ -651,7 +652,7 @@ function renderCatalogo() {
                 ${p.marca?`<span style="color:var(--greenD)">· ${p.marca}</span>`:''}
                 ${p.principioAtivo?`<span>· ${p.principioAtivo}${p.concentracao?' '+p.concentracao:''}</span>`:''}
               </div>
-              ${cat==='Fertilizantes'&&((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)+(p.garantiaB||0)+(p.garantiaZn||0)>0)?`<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
+              ${cat==='Fertilizantes'&&((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)>0)?`<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
                 ${[['N',p.garantiaN,'#60a5fa'],['P',p.garantiaP,'#fbbf24'],['K',p.garantiaK,'#4ade80'],['Ca',p.garantiaCa,'#fb923c'],['Mg',p.garantiaMg,'#86efac'],['S',p.garantiaS,'#9ca3af'],['B',p.garantiaB,'#c084fc'],['Zn',p.garantiaZn,'#fdba74']].filter(([,v])=>v>0).map(([k,v,c])=>`<span style="font-size:8px;padding:1px 5px;background:#080e08;border:1px solid var(--border);border-radius:3px"><span style="color:${c}">${k}</span> <span style="color:var(--text)">${v}%</span></span>`).join('')}
                 ${(+p.precoEmbalagem>0&&+p.pesoEmbalagem>0)?`<span style="font-size:8px;padding:1px 5px;background:#080e08;border:1px solid var(--border);border-radius:3px;color:var(--green)">R$${(p.precoEmbalagem/p.pesoEmbalagem).toFixed(2)}/kg</span>`:''}
               </div>`:''}
@@ -946,11 +947,15 @@ function calcAlocacao() {
 }
 
 // ─── FERTIRRIGAÇÃO ENGINE ─────────────────────────────────────────────────────
-const EXTRA_KG_TON = {N:2.09,P:0.31,K:4.06,Ca:1.60,Mg:0.58,S:1.03};
+const CURVAS_EXTRACAO = {
+  'marco-alvarenga': { label:'Marco Alvarenga',         N:2.09, P:0.31, K:4.06, Ca:1.60, Mg:0.58, S:1.03, B_gton:4.661,  Zn_gton:22.899 },
+  'masserati':       { label:'Masserati (IPACER 2021)', N:2.03, P:0.47, K:3.82, Ca:1.14, Mg:0.28, S:0.18, B_gton:2.91,   Zn_gton:4.95   },
+  'dante':           { label:'Dante (IPACER 2023)',     N:1.99, P:0.63, K:2.67, Ca:0.31, Mg:0.18, S:0.16, B_gton:1.85,   Zn_gton:2.51   },
+  'abbiadore':       { label:'Abbiadore (IPACER 2021)', N:2.90, P:0.83, K:3.97, Ca:0.88, Mg:0.33, S:0.23, B_gton:2.53,   Zn_gton:2.54   },
+  'caniati':         { label:'Caniati (Syngenta 2020)', N:2.53, P:0.46, K:4.05, Ca:1.46, Mg:0.35, S:0.70, B_gton:1.85,   Zn_gton:2.90   },
+};
 const P2O5_FATOR = 2.2914;
 const K2O_FATOR  = 1.2046;
-const B_G_PE  = 0.046;  // g/planta
-const ZN_G_PE = 0.079;  // g/planta
 const EFIC_MICRO = 0.20;
 
 // Distribuição semanal [N%, P2O5%, K2O%, Ca%, Mg%, S%]  — índice 0 = semana 1
@@ -976,7 +981,8 @@ const DIST_FERTIG = [
   [0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],
 ];
 
-function calcFertigPrograma(ciclo) {
+function calcFertigPrograma(ciclo, curvaKey) {
+  const curva  = CURVAS_EXTRACAO[curvaKey || S.fertCurva] || CURVAS_EXTRACAO['marco-alvarenga'];
   const plantas = +ciclo.qtdMudas || 0;
   const metaKg  = +ciclo.metaKgPe || 10;
   const prodTon = plantas * metaKg / 1000;
@@ -988,14 +994,14 @@ function calcFertigPrograma(ciclo) {
   const eficMg = (+ciclo.eficMg || 60) / 100;
   const pctCa  = (+ciclo.pctCaFertig || 25) / 100;
 
-  const totN   = prodTon * EXTRA_KG_TON.N  / eficN;
-  const totP   = prodTon * EXTRA_KG_TON.P  / eficP * P2O5_FATOR;
-  const totK   = prodTon * EXTRA_KG_TON.K  / eficK * K2O_FATOR;
-  const totCa  = prodTon * EXTRA_KG_TON.Ca / eficCa * pctCa;
-  const totMg  = prodTon * EXTRA_KG_TON.Mg / eficMg;
-  const totS   = prodTon * EXTRA_KG_TON.S;
-  const totB   = plantas > 0 ? plantas * B_G_PE  / EFIC_MICRO : 0; // g
-  const totZn  = plantas > 0 ? plantas * ZN_G_PE / EFIC_MICRO : 0; // g
+  const totN   = prodTon * curva.N  / eficN;
+  const totP   = prodTon * curva.P  / eficP * P2O5_FATOR;
+  const totK   = prodTon * curva.K  / eficK * K2O_FATOR;
+  const totCa  = prodTon * curva.Ca / eficCa * pctCa;
+  const totMg  = prodTon * curva.Mg / eficMg;
+  const totS   = prodTon * curva.S;
+  const totB   = prodTon > 0 ? prodTon * curva.B_gton  / EFIC_MICRO : 0; // g
+  const totZn  = prodTon > 0 ? prodTon * curva.Zn_gton / EFIC_MICRO : 0; // g
 
   const semanasAtivas = DIST_FERTIG.filter(d=>d.some(x=>x>0)).length;
 
@@ -1022,7 +1028,7 @@ function calcFertigPrograma(ciclo) {
 function alocarSemana(targets, produtos) {
   const ferts = produtos.filter(p =>
     p.categoria === 'Fertilizantes' &&
-    ((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)+(p.garantiaB||0)+(p.garantiaZn||0)>0)
+    ((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)>0)
   );
   if (!targets.ativo || ferts.length === 0) return [];
 
@@ -1122,7 +1128,21 @@ function renderFertig() {
       </div></div>`;
   }
 
-  const prog = calcFertigPrograma(ci);
+  const prog = calcFertigPrograma(ci, S.fertCurva);
+
+  const curvaAtual = CURVAS_EXTRACAO[S.fertCurva] || CURVAS_EXTRACAO['marco-alvarenga'];
+  const curvaSelector = `<div class="card" style="padding:10px 14px">
+    <label class="lbl">Curva de Extração</label>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">
+      ${Object.entries(CURVAS_EXTRACAO).map(([k,c])=>{
+        const ativo = S.fertCurva===k;
+        return `<button data-fertig-curva="${k}" style="padding:5px 10px;border-radius:8px;border:1px solid ${ativo?'var(--green)':'var(--border)'};background:${ativo?'#16a34a22':'transparent'};color:${ativo?'var(--green)':'var(--muted)'};font-family:'DM Mono',monospace;font-size:10px;cursor:pointer;white-space:nowrap">${c.label}</button>`;
+      }).join('')}
+    </div>
+    <div style="margin-top:6px;display:flex;gap:12px;flex-wrap:wrap;font-size:9px;color:var(--muted)">
+      ${[['N',curvaAtual.N],['P',curvaAtual.P],['K',curvaAtual.K],['Ca',curvaAtual.Ca],['Mg',curvaAtual.Mg],['S',curvaAtual.S]].map(([k,v])=>`<span><span style="color:var(--text)">${k}</span> ${v} kg/t</span>`).join('')}
+    </div>
+  </div>`;
 
   const summaryCard = `<div class="card" style="padding:10px 14px">
     <div style="font-size:11px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">Estufa ${S.fertEstufa} · ${ci.variedade||'—'}</div>
@@ -1145,7 +1165,7 @@ function renderFertig() {
   else if(S.fertTab==='semanas')body = renderFertigSemanas(prog);
   else                           body = renderFertigCalendario(prog, ci);
 
-  return `<div class="pad">${estufaSelector}${summaryCard}${tabToggle}${body}</div>`;
+  return `<div class="pad">${estufaSelector}${curvaSelector}${summaryCard}${tabToggle}${body}</div>`;
 }
 
 function renderFertigTotais(prog, ci) {
@@ -1211,7 +1231,7 @@ function renderFertigTotais(prog, ci) {
 }
 
 function renderFertigSemanas(prog) {
-  const hasFerts = S.produtos.some(p=>p.categoria==='Fertilizantes'&&((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)+(p.garantiaB||0)+(p.garantiaZn||0)>0));
+  const hasFerts = S.produtos.some(p=>p.categoria==='Fertilizantes'&&((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)>0));
 
   return prog.semanas.filter(s=>s.ativo).map(sem=>{
     const alocado = alocarSemana(sem, S.produtos);
@@ -1957,6 +1977,11 @@ function attachEvents() {
   // ── Produto: salvar edição
   const btnSalvarEditProd = document.getElementById('btn-salvar-edit-prod');
   if(btnSalvarEditProd) btnSalvarEditProd.addEventListener('click', salvarEditProduto);
+
+  // ── Fertig: selecionar curva de extração
+  document.querySelectorAll('[data-fertig-curva]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ S.fertCurva=btn.dataset.fertigCurva; render(); });
+  });
 
   // ── Fertig: selecionar estufa
   document.querySelectorAll('[data-fertig-estufa]').forEach(btn=>{
