@@ -651,7 +651,7 @@ function renderCatalogo() {
                 ${p.marca?`<span style="color:var(--greenD)">· ${p.marca}</span>`:''}
                 ${p.principioAtivo?`<span>· ${p.principioAtivo}${p.concentracao?' '+p.concentracao:''}</span>`:''}
               </div>
-              ${cat==='Fertilizantes'&&((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)>0)?`<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
+              ${cat==='Fertilizantes'&&((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)+(p.garantiaB||0)+(p.garantiaZn||0)>0)?`<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
                 ${[['N',p.garantiaN,'#60a5fa'],['P',p.garantiaP,'#fbbf24'],['K',p.garantiaK,'#4ade80'],['Ca',p.garantiaCa,'#fb923c'],['Mg',p.garantiaMg,'#86efac'],['S',p.garantiaS,'#9ca3af'],['B',p.garantiaB,'#c084fc'],['Zn',p.garantiaZn,'#fdba74']].filter(([,v])=>v>0).map(([k,v,c])=>`<span style="font-size:8px;padding:1px 5px;background:#080e08;border:1px solid var(--border);border-radius:3px"><span style="color:${c}">${k}</span> <span style="color:var(--text)">${v}%</span></span>`).join('')}
                 ${(+p.precoEmbalagem>0&&+p.pesoEmbalagem>0)?`<span style="font-size:8px;padding:1px 5px;background:#080e08;border:1px solid var(--border);border-radius:3px;color:var(--green)">R$${(p.precoEmbalagem/p.pesoEmbalagem).toFixed(2)}/kg</span>`:''}
               </div>`:''}
@@ -1022,7 +1022,7 @@ function calcFertigPrograma(ciclo) {
 function alocarSemana(targets, produtos) {
   const ferts = produtos.filter(p =>
     p.categoria === 'Fertilizantes' &&
-    ((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)>0)
+    ((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)+(p.garantiaB||0)+(p.garantiaZn||0)>0)
   );
   if (!targets.ativo || ferts.length === 0) return [];
 
@@ -1211,7 +1211,7 @@ function renderFertigTotais(prog, ci) {
 }
 
 function renderFertigSemanas(prog) {
-  const hasFerts = S.produtos.some(p=>p.categoria==='Fertilizantes'&&((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)>0));
+  const hasFerts = S.produtos.some(p=>p.categoria==='Fertilizantes'&&((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)+(p.garantiaB||0)+(p.garantiaZn||0)>0));
 
   return prog.semanas.filter(s=>s.ativo).map(sem=>{
     const alocado = alocarSemana(sem, S.produtos);
