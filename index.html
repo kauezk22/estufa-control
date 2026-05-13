@@ -990,15 +990,16 @@ function calcFertigPrograma(ciclo, curvaKey) {
   const eficCa = (+ciclo.eficCa || 50) / 100;
   const eficMg = (+ciclo.eficMg || 60) / 100;
   const pctCa  = (+ciclo.pctCaFertig || 25) / 100;
+  const fatorRed = 1 - Math.min(Math.max(+(ciclo.reducaoPrograma||0), 0), 100) / 100;
 
-  const totN   = prodTon * curva.N  / eficN;
-  const totP   = prodTon * curva.P  / eficP * P2O5_FATOR;
-  const totK   = prodTon * curva.K  / eficK * K2O_FATOR;
-  const totCa  = prodTon * curva.Ca / eficCa * pctCa;
-  const totMg  = prodTon * curva.Mg / eficMg;
-  const totS   = prodTon * curva.S;
-  const totB   = prodTon > 0 ? prodTon * curva.B_gton  / EFIC_MICRO : 0; // g
-  const totZn  = prodTon > 0 ? prodTon * curva.Zn_gton / EFIC_MICRO : 0; // g
+  const totN   = prodTon * curva.N  / eficN  * fatorRed;
+  const totP   = prodTon * curva.P  / eficP  * P2O5_FATOR * fatorRed;
+  const totK   = prodTon * curva.K  / eficK  * K2O_FATOR  * fatorRed;
+  const totCa  = prodTon * curva.Ca / eficCa * pctCa       * fatorRed;
+  const totMg  = prodTon * curva.Mg / eficMg               * fatorRed;
+  const totS   = prodTon * curva.S                         * fatorRed;
+  const totB   = prodTon > 0 ? prodTon * curva.B_gton  / EFIC_MICRO * fatorRed : 0;
+  const totZn  = prodTon > 0 ? prodTon * curva.Zn_gton / EFIC_MICRO * fatorRed : 0;
 
   const semanasAtivas = DIST_FERTIG.filter(d=>d.some(x=>x>0)).length;
 
@@ -1147,14 +1148,28 @@ function renderFertig() {
     </div>
   </div>`;
 
+  const reducao = +(ci.reducaoPrograma||0);
   const summaryCard = `<div class="card" style="padding:10px 14px">
     <div style="font-size:11px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">Estufa ${S.fertEstufa} · ${ci.variedade||'—'}</div>
-    <div class="grid2" style="font-size:11px;gap:6px">
+    <div class="grid2" style="font-size:11px;gap:6px;margin-bottom:10px">
       <div><span style="color:var(--muted)">Plantas:</span> <span style="color:var(--text)">${prog.plantas.toLocaleString('pt-BR')}</span></div>
       <div><span style="color:var(--muted)">Meta:</span> <span style="color:var(--text)">${ci.metaKgPe} kg/pé</span></div>
       <div><span style="color:var(--muted)">Produção est.:</span> <span style="color:var(--green);font-weight:500">${prog.prodTon.toFixed(2)} t</span></div>
       <div><span style="color:var(--muted)">Plantio:</span> <span style="color:var(--text)">${fmtD(ci.plantio)}</span></div>
     </div>
+    <div style="border-top:1px solid var(--border);padding-top:10px;display:flex;align-items:center;gap:10px">
+      <div style="flex:1">
+        <label class="lbl" style="margin-bottom:2px">Redução geral do programa</label>
+        <div style="font-size:9px;color:var(--muted)">Reduz todos os nutrientes proporcionalmente. 0% = sem redução.</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+        <input type="number" id="fertig-reducao" min="0" max="100" step="1" value="${reducao}"
+          style="width:56px;text-align:right;font-family:'DM Mono',monospace;font-size:13px;font-weight:500;color:${reducao>0?'var(--amber)':'var(--text)'}"
+          data-reducao-ciclo="${ci.id}">
+        <span style="font-size:12px;color:var(--muted)">%</span>
+      </div>
+    </div>
+    ${reducao>0?`<div style="margin-top:6px;font-size:9px;padding:4px 8px;background:#92400e22;border:1px solid #92400e55;border-radius:6px;color:var(--amber)">Programa reduzido em ${reducao}% — todos os nutrientes aplicando ${100-reducao}% do calculado</div>`:''}
   </div>`;
 
   const tabToggle = `<div class="pill-toggle">
@@ -2002,6 +2017,20 @@ function attachEvents() {
   // ── Produto: salvar edição
   const btnSalvarEditProd = document.getElementById('btn-salvar-edit-prod');
   if(btnSalvarEditProd) btnSalvarEditProd.addEventListener('click', salvarEditProduto);
+
+  // ── Fertig: redução geral do programa
+  const reducaoInput = document.getElementById('fertig-reducao');
+  if(reducaoInput) {
+    let reducaoTimer;
+    reducaoInput.addEventListener('input', ()=>{
+      clearTimeout(reducaoTimer);
+      reducaoTimer = setTimeout(async ()=>{
+        const cicloId = reducaoInput.dataset.reducaoCiclo;
+        const val = Math.min(Math.max(+reducaoInput.value||0, 0), 100);
+        await updateDoc(doc(db,'ciclos',cicloId),{reducaoPrograma: val});
+      }, 600);
+    });
+  }
 
   // ── Fertig: selecionar curva de extração (salva no ciclo)
   document.querySelectorAll('[data-fertig-curva]').forEach(btn=>{
