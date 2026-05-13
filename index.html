@@ -104,7 +104,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:.3}
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
-  getFirestore, collection, addDoc, updateDoc, deleteDoc,
+  getFirestore, collection, addDoc, updateDoc, deleteDoc, setDoc,
   doc, onSnapshot, query, orderBy, serverTimestamp, Timestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
@@ -147,6 +147,7 @@ const S = {
   fertEstufa: null,
   fertSemana: 3,
   fertCurva: 'marco-alvarenga',
+  curvas: [],
   modal: null,
   modalData: {},
   ciclos: [],
@@ -947,13 +948,9 @@ function calcAlocacao() {
 }
 
 // ─── FERTIRRIGAÇÃO ENGINE ─────────────────────────────────────────────────────
-const CURVAS_EXTRACAO = {
-  'marco-alvarenga': { label:'Marco Alvarenga',         N:2.09, P:0.31, K:4.06, Ca:1.60, Mg:0.58, S:1.03, B_gton:4.661,  Zn_gton:22.899 },
-  'masserati':       { label:'Masserati (IPACER 2021)', N:2.03, P:0.47, K:3.82, Ca:1.14, Mg:0.28, S:0.18, B_gton:2.91,   Zn_gton:4.95   },
-  'dante':           { label:'Dante (IPACER 2023)',     N:1.99, P:0.63, K:2.67, Ca:0.31, Mg:0.18, S:0.16, B_gton:1.85,   Zn_gton:2.51   },
-  'abbiadore':       { label:'Abbiadore (IPACER 2021)', N:2.90, P:0.83, K:3.97, Ca:0.88, Mg:0.33, S:0.23, B_gton:2.53,   Zn_gton:2.54   },
-  'caniati':         { label:'Caniati (Syngenta 2020)', N:2.53, P:0.46, K:4.05, Ca:1.46, Mg:0.35, S:0.70, B_gton:1.85,   Zn_gton:2.90   },
-};
+function getCurva(id) {
+  return S.curvas.find(c=>c.id===id) || S.curvas[0] || CURVAS_SEED[0];
+}
 const P2O5_FATOR = 2.2914;
 const K2O_FATOR  = 1.2046;
 const EFIC_MICRO = 0.20;
@@ -982,7 +979,7 @@ const DIST_FERTIG = [
 ];
 
 function calcFertigPrograma(ciclo, curvaKey) {
-  const curva  = CURVAS_EXTRACAO[curvaKey || S.fertCurva] || CURVAS_EXTRACAO['marco-alvarenga'];
+  const curva  = getCurva(curvaKey || S.fertCurva);
   const plantas = +ciclo.qtdMudas || 0;
   const metaKg  = +ciclo.metaKgPe || 10;
   const prodTon = plantas * metaKg / 1000;
@@ -1094,7 +1091,6 @@ function dowOf(dateStr) {
 
 // ─── FERTIRRIGAÇÃO VIEWS ──────────────────────────────────────────────────────
 function renderFertig() {
-  // Auto-select first estufa with active cycle
   const estufasComCiclo = Array.from({length:N_ESTUFAS},(_,i)=>i+1).filter(e=>cicloAtivo(e));
   if(S.fertEstufa===null && estufasComCiclo.length>0) S.fertEstufa = estufasComCiclo[0];
 
@@ -1119,6 +1115,10 @@ function renderFertig() {
   if(!ci) return `<div class="pad">${estufaSelector}
     <div class="card"><div class="empty">Sem ciclo ativo nesta estufa.</div></div></div>`;
 
+  // Derive curva from ciclo, fallback to state/first
+  const curvaId = ci.fertCurva || S.fertCurva || (S.curvas[0]?.id) || 'marco-alvarenga';
+  if(S.fertCurva !== curvaId) S.fertCurva = curvaId;
+
   if(!ci.qtdMudas || !ci.metaKgPe) {
     return `<div class="pad">${estufaSelector}
       <div class="card" style="border-color:var(--amber)">
@@ -1128,19 +1128,22 @@ function renderFertig() {
       </div></div>`;
   }
 
-  const prog = calcFertigPrograma(ci, S.fertCurva);
+  const prog = calcFertigPrograma(ci, curvaId);
+  const curvaAtual = getCurva(curvaId);
 
-  const curvaAtual = CURVAS_EXTRACAO[S.fertCurva] || CURVAS_EXTRACAO['marco-alvarenga'];
   const curvaSelector = `<div class="card" style="padding:10px 14px">
-    <label class="lbl">Curva de Extração</label>
-    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">
-      ${Object.entries(CURVAS_EXTRACAO).map(([k,c])=>{
-        const ativo = S.fertCurva===k;
-        return `<button data-fertig-curva="${k}" style="padding:5px 10px;border-radius:8px;border:1px solid ${ativo?'var(--green)':'var(--border)'};background:${ativo?'#16a34a22':'transparent'};color:${ativo?'var(--green)':'var(--muted)'};font-family:'DM Mono',monospace;font-size:10px;cursor:pointer;white-space:nowrap">${c.label}</button>`;
+    <div class="row" style="margin-bottom:8px">
+      <label class="lbl" style="margin-bottom:0">Curva de Extração</label>
+      <button data-editar-curva="${curvaId}" style="background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0" title="Editar curva">✎</button>
+    </div>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px">
+      ${S.curvas.map(c=>{
+        const ativo = curvaId===c.id;
+        return `<button data-fertig-curva="${c.id}" data-fertig-curva-ciclo="${ci.id}" style="padding:5px 10px;border-radius:8px;border:1px solid ${ativo?'var(--green)':'var(--border)'};background:${ativo?'#16a34a22':'transparent'};color:${ativo?'var(--green)':'var(--muted)'};font-family:'DM Mono',monospace;font-size:10px;cursor:pointer;white-space:nowrap">${c.label}</button>`;
       }).join('')}
     </div>
-    <div style="margin-top:6px;display:flex;gap:12px;flex-wrap:wrap;font-size:9px;color:var(--muted)">
-      ${[['N',curvaAtual.N],['P',curvaAtual.P],['K',curvaAtual.K],['Ca',curvaAtual.Ca],['Mg',curvaAtual.Mg],['S',curvaAtual.S]].map(([k,v])=>`<span><span style="color:var(--text)">${k}</span> ${v} kg/t</span>`).join('')}
+    <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:9px;color:var(--muted)">
+      ${[['N',curvaAtual.N,'kg/t'],['P',curvaAtual.P,'kg/t'],['K',curvaAtual.K,'kg/t'],['Ca',curvaAtual.Ca,'kg/t'],['Mg',curvaAtual.Mg,'kg/t'],['S',curvaAtual.S,'kg/t'],['B',curvaAtual.B_gton,'g/t'],['Zn',curvaAtual.Zn_gton,'g/t']].map(([k,v,u])=>`<span><span style="color:var(--text)">${k}</span> ${v} <span style="opacity:.6">${u}</span></span>`).join('')}
     </div>
   </div>`;
 
@@ -1572,6 +1575,28 @@ function renderModal() {
       <button class="btn btn-green" id="btn-salvar-edit-ciclo">Salvar Alterações</button>`;
   }
 
+  if(modal==='editar-curva') {
+    const c = S.curvas.find(x=>x.id===modalData.curvaId)||{};
+    const nf = (v) => v !== undefined ? v : '';
+    body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Editar Curva — ${c.label||''}</div>
+      <div style="font-size:9px;color:var(--muted);margin-bottom:12px;line-height:1.6">Valores de extração por tonelada produzida. Alterações ficam salvas permanentemente para esta curva.</div>
+      <div style="font-size:9px;color:var(--green);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">Macronutrientes (kg/ton)</div>
+      <div class="grid3" style="margin-bottom:12px">
+        <div><label class="lbl">N</label><input type="number" id="ec-curva-n"  min="0" step="0.01" value="${nf(c.N)}"></div>
+        <div><label class="lbl">P</label><input type="number" id="ec-curva-p"  min="0" step="0.01" value="${nf(c.P)}"></div>
+        <div><label class="lbl">K</label><input type="number" id="ec-curva-k"  min="0" step="0.01" value="${nf(c.K)}"></div>
+        <div><label class="lbl">Ca</label><input type="number" id="ec-curva-ca" min="0" step="0.01" value="${nf(c.Ca)}"></div>
+        <div><label class="lbl">Mg</label><input type="number" id="ec-curva-mg" min="0" step="0.01" value="${nf(c.Mg)}"></div>
+        <div><label class="lbl">S</label><input type="number" id="ec-curva-s"  min="0" step="0.01" value="${nf(c.S)}"></div>
+      </div>
+      <div style="font-size:9px;color:var(--green);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">Micronutrientes (g/ton)</div>
+      <div class="grid2" style="margin-bottom:16px">
+        <div><label class="lbl">B</label><input type="number" id="ec-curva-b"  min="0" step="0.001" value="${nf(c.B_gton)}"></div>
+        <div><label class="lbl">Zn</label><input type="number" id="ec-curva-zn" min="0" step="0.001" value="${nf(c.Zn_gton)}"></div>
+      </div>
+      <button class="btn btn-green" id="btn-salvar-curva">Salvar Curva</button>`;
+  }
+
   if(modal==='encerrar') {
     body = `<div class="modal-title"><button class="modal-close" data-close-modal>✕</button>Encerrar Ciclo</div>
       <div style="margin-bottom:8px"><label class="lbl">Última Colheita</label><input type="date" id="m-ultima-col" value="${today()}"></div>
@@ -1978,9 +2003,34 @@ function attachEvents() {
   const btnSalvarEditProd = document.getElementById('btn-salvar-edit-prod');
   if(btnSalvarEditProd) btnSalvarEditProd.addEventListener('click', salvarEditProduto);
 
-  // ── Fertig: selecionar curva de extração
+  // ── Fertig: selecionar curva de extração (salva no ciclo)
   document.querySelectorAll('[data-fertig-curva]').forEach(btn=>{
-    btn.addEventListener('click',()=>{ S.fertCurva=btn.dataset.fertigCurva; render(); });
+    btn.addEventListener('click',()=>{
+      const curvaId = btn.dataset.fertigCurva;
+      const cicloId = btn.dataset.fertigCurvaCiclo;
+      S.fertCurva = curvaId;
+      render();
+      if(cicloId) updateDoc(doc(db,'ciclos',cicloId),{fertCurva: curvaId});
+    });
+  });
+
+  // ── Fertig: abrir modal de edição de curva
+  document.querySelectorAll('[data-editar-curva]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ S.modal='editar-curva'; S.modalData={curvaId:btn.dataset.editarCurva}; render(); });
+  });
+
+  // ── Fertig: salvar edição de curva
+  const btnSalvarCurva = document.getElementById('btn-salvar-curva');
+  if(btnSalvarCurva) btnSalvarCurva.addEventListener('click', async ()=>{
+    const id = S.modalData.curvaId;
+    const g = (eid) => +document.getElementById(eid)?.value || 0;
+    const updates = {
+      N: g('ec-curva-n'), P: g('ec-curva-p'), K: g('ec-curva-k'),
+      Ca: g('ec-curva-ca'), Mg: g('ec-curva-mg'), S: g('ec-curva-s'),
+      B_gton: g('ec-curva-b'), Zn_gton: g('ec-curva-zn'),
+    };
+    S.modal=null; render();
+    await updateDoc(doc(db,'curvas',id), updates);
   });
 
   // ── Fertig: selecionar estufa
@@ -2362,7 +2412,15 @@ function initApp() {
 
 // ─── Firebase listeners ───────────────────────────────────────────────────────
 let readyCount = 0;
-function checkReady() { readyCount++; if(readyCount>=5){ S.ready=true; render(); } }
+function checkReady() { readyCount++; if(readyCount>=6){ S.ready=true; render(); } }
+
+const CURVAS_SEED = [
+  {id:'marco-alvarenga', label:'Marco Alvarenga',         N:2.09, P:0.31, K:4.06, Ca:1.60, Mg:0.58, S:1.03, B_gton:4.661,  Zn_gton:22.899},
+  {id:'masserati',       label:'Masserati (IPACER 2021)', N:2.03, P:0.47, K:3.82, Ca:1.14, Mg:0.28, S:0.18, B_gton:2.91,   Zn_gton:4.95  },
+  {id:'dante',           label:'Dante (IPACER 2023)',     N:1.99, P:0.63, K:2.67, Ca:0.31, Mg:0.18, S:0.16, B_gton:1.85,   Zn_gton:2.51  },
+  {id:'abbiadore',       label:'Abbiadore (IPACER 2021)', N:2.90, P:0.83, K:3.97, Ca:0.88, Mg:0.33, S:0.23, B_gton:2.53,   Zn_gton:2.54  },
+  {id:'caniati',         label:'Caniati (Syngenta 2020)', N:2.53, P:0.46, K:4.05, Ca:1.46, Mg:0.35, S:0.70, B_gton:1.85,   Zn_gton:2.90  },
+];
 
 function startListeners() {
   readyCount = 0;
@@ -2371,6 +2429,20 @@ function startListeners() {
   onSnapshot(query(collection(db,'custos'),     orderBy('data','desc')),      snap=>{ S.custos     =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
   onSnapshot(query(collection(db,'ocorrencias'),orderBy('data','desc')),      snap=>{ S.ocorrencias=snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
   onSnapshot(query(collection(db,'produtos'),   orderBy('createdAt','desc')), snap=>{ S.produtos   =snap.docs.map(d=>({id:d.id,...d.data()})); checkReady(); render(); });
+  onSnapshot(collection(db,'curvas'), async snap=>{
+    if(snap.empty) {
+      // Seed das curvas padrão com IDs fixos
+      for(const c of CURVAS_SEED) {
+        const {id, ...data} = c;
+        await setDoc(doc(db,'curvas',id), data);
+      }
+    } else {
+      S.curvas = snap.docs.map(d=>({id:d.id,...d.data()}))
+        .sort((a,b)=> CURVAS_SEED.findIndex(s=>s.id===a.id) - CURVAS_SEED.findIndex(s=>s.id===b.id));
+      checkReady();
+      render();
+    }
+  });
 }
 
 // Boot
