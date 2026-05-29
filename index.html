@@ -1022,8 +1022,34 @@ function calcFertigPrograma(ciclo, curvaKey) {
   };
 }
 
-// Greedy allocation: sequential nutrient coverage
-function alocarSemana(targets, produtos) {
+// ─── Helpers de split de fontes (Etapa 1) ──────────────────────────────────
+// Retorna true se o ciclo tem split configurado (ao menos 1 fonte de P ou K com %>0)
+function temSplitConfigurado(ci) {
+  if (!ci || !ci.splitFontes) return false;
+  const sf = ci.splitFontes;
+  const algumP = sf.P && Object.values(sf.P).some(v=>+v>0);
+  const algumK = sf.K && Object.values(sf.K).some(v=>+v>0);
+  return !!(algumP || algumK);
+}
+
+// Normaliza um mapa {prodId: pct} para frações que somam 1.
+// Se a soma for <100, a 1ª fonte (maior %) recebe o resto.
+function fracoesSplit(mapa) {
+  const ent = Object.entries(mapa||{}).map(([id,v])=>[id, Math.max(+v||0,0)]).filter(([,v])=>v>0);
+  if (ent.length === 0) return [];
+  const soma = ent.reduce((a,[,v])=>a+v,0);
+  if (soma <= 0) return [];
+  if (soma >= 100) return ent.map(([id,v])=>[id, v/soma]);
+  const fr = ent.map(([id,v])=>[id, v/100]);
+  fr.sort((a,b)=>b[1]-a[1]);
+  fr[0][1] += (100-soma)/100;
+  return fr;
+}
+
+// Alocação por semana.
+// Sem split configurado → greedy legado (compatibilidade).
+// Com split → rateia P e K conforme config; N de carona descontado; sulfato de amônio fecha o N.
+function alocarSemana(targets, produtos, ci) {
   const ferts = produtos.filter(p =>
     p.categoria === 'Fertilizantes' &&
     ((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)>0)
@@ -1032,9 +1058,10 @@ function alocarSemana(targets, produtos) {
 
   const rem = {N:targets.N, P2O5:targets.P2O5, K2O:targets.K2O, Ca:targets.Ca, Mg:targets.Mg, S:targets.S};
   const usado = {};
+  const byId = id => ferts.find(p=>p.id===id);
 
   function addKg(prod, kg) {
-    if (kg <= 0 || !isFinite(kg)) return;
+    if (!prod || kg <= 0 || !isFinite(kg)) return;
     usado[prod.id] = (usado[prod.id]||0) + kg;
     rem.N    = Math.max(0, rem.N    - kg*(prod.garantiaN ||0)/100);
     rem.P2O5 = Math.max(0, rem.P2O5 - kg*(prod.garantiaP ||0)/100);
@@ -1044,39 +1071,92 @@ function alocarSemana(targets, produtos) {
     rem.S    = Math.max(0, rem.S    - kg*(prod.garantiaS ||0)/100);
   }
 
-  // 1. Calcinit (terça/quinta) → cobre Ca
-  ferts.filter(p=>p.isCalcinit&&(p.garantiaCa||0)>0).slice(0,1)
-    .forEach(p => rem.Ca>0.001 && addKg(p, rem.Ca/(p.garantiaCa/100)));
+  if (!temSplitConfigurado(ci)) {
+    // ── GREEDY LEGADO ──
+    ferts.filter(p=>p.isCalcinit&&(p.garantiaCa||0)>0).slice(0,1)
+      .forEach(p => rem.Ca>0.001 && addKg(p, rem.Ca/(p.garantiaCa/100)));
+    ferts.filter(p=>!p.isCalcinit&&(p.garantiaP||0)>0&&!usado[p.id])
+      .sort((a,b)=>b.garantiaP-a.garantiaP).slice(0,1)
+      .forEach(p => rem.P2O5>0.001 && addKg(p, rem.P2O5/(p.garantiaP/100)));
+    ferts.filter(p=>!p.isCalcinit&&(p.garantiaK||0)>0&&!usado[p.id])
+      .sort((a,b)=>b.garantiaK-a.garantiaK).slice(0,1)
+      .forEach(p => rem.K2O>0.001 && addKg(p, rem.K2O/(p.garantiaK/100)));
+    ferts.filter(p=>!p.isCalcinit&&(p.garantiaMg||0)>0&&!usado[p.id])
+      .sort((a,b)=>b.garantiaMg-a.garantiaMg).slice(0,1)
+      .forEach(p => rem.Mg>0.001 && addKg(p, rem.Mg/(p.garantiaMg/100)));
+    ferts.filter(p=>!p.isCalcinit&&(p.garantiaS||0)>0&&!usado[p.id])
+      .sort((a,b)=>b.garantiaS-a.garantiaS).slice(0,1)
+      .forEach(p => rem.S>0.001 && addKg(p, rem.S/(p.garantiaS/100)));
+    ferts.filter(p=>!p.isCalcinit&&(p.garantiaN||0)>0&&!usado[p.id])
+      .sort((a,b)=>b.garantiaN-a.garantiaN).slice(0,1)
+      .forEach(p => rem.N>0.001 && addKg(p, rem.N/(p.garantiaN/100)));
+  } else {
+    // ── SPLIT CONFIGURADO ──
+    const sf = ci.splitFontes || {};
+    const alvoP = targets.P2O5;
 
-  // 2. Fonte de P₂O₅
-  ferts.filter(p=>!p.isCalcinit&&(p.garantiaP||0)>0&&!usado[p.id])
-    .sort((a,b)=>b.garantiaP-a.garantiaP).slice(0,1)
-    .forEach(p => rem.P2O5>0.001 && addKg(p, rem.P2O5/(p.garantiaP/100)));
+    // 1. Ca → Calcinit (lança N nítrico de carona)
+    ferts.filter(p=>p.isCalcinit&&(p.garantiaCa||0)>0).slice(0,1)
+      .forEach(p => rem.Ca>0.001 && addKg(p, rem.Ca/(p.garantiaCa/100)));
 
-  // 3. Fonte de K₂O
-  ferts.filter(p=>!p.isCalcinit&&(p.garantiaK||0)>0&&!usado[p.id])
-    .sort((a,b)=>b.garantiaK-a.garantiaK).slice(0,1)
-    .forEach(p => rem.K2O>0.001 && addKg(p, rem.K2O/(p.garantiaK/100)));
+    // 2. P₂O₅ → rateio entre fontes (K do MKP vira bônus que abate)
+    fracoesSplit(sf.P).forEach(([id,frac])=>{
+      const p = byId(id);
+      if (p && (p.garantiaP||0)>0) addKg(p, (alvoP*frac)/(p.garantiaP/100));
+    });
 
-  // 4. Fonte de Mg
-  ferts.filter(p=>!p.isCalcinit&&(p.garantiaMg||0)>0&&!usado[p.id])
-    .sort((a,b)=>b.garantiaMg-a.garantiaMg).slice(0,1)
-    .forEach(p => rem.Mg>0.001 && addKg(p, rem.Mg/(p.garantiaMg/100)));
+    // 3. K₂O → rateio sobre o que falta (já descontado o K do MKP), lança N de carona
+    const faltaK = Math.max(rem.K2O, 0);
+    fracoesSplit(sf.K).forEach(([id,frac])=>{
+      const p = byId(id);
+      if (p && (p.garantiaK||0)>0) addKg(p, (faltaK*frac)/(p.garantiaK/100));
+    });
 
-  // 5. Fonte de S residual
-  ferts.filter(p=>!p.isCalcinit&&(p.garantiaS||0)>0&&!usado[p.id])
-    .sort((a,b)=>b.garantiaS-a.garantiaS).slice(0,1)
-    .forEach(p => rem.S>0.001 && addKg(p, rem.S/(p.garantiaS/100)));
+    // 4. Mg → maior garantia disponível
+    ferts.filter(p=>!p.isCalcinit&&(p.garantiaMg||0)>0&&!usado[p.id])
+      .sort((a,b)=>b.garantiaMg-a.garantiaMg).slice(0,1)
+      .forEach(p => rem.Mg>0.001 && addKg(p, rem.Mg/(p.garantiaMg/100)));
 
-  // 6. Fonte de N residual
-  ferts.filter(p=>!p.isCalcinit&&(p.garantiaN||0)>0&&!usado[p.id])
-    .sort((a,b)=>b.garantiaN-a.garantiaN).slice(0,1)
-    .forEach(p => rem.N>0.001 && addKg(p, rem.N/(p.garantiaN/100)));
+    // 5. N restante → sulfato de amônio (maior %N entre não-Calcinit, não-nitrato-de-Ca)
+    if (rem.N>0.001) {
+      const fonteN = ferts
+        .filter(p=>!p.isCalcinit&&(p.garantiaN||0)>0&&(p.garantiaCa||0)===0)
+        .sort((a,b)=>b.garantiaN-a.garantiaN)[0];
+      if (fonteN) addKg(fonteN, rem.N/(fonteN.garantiaN/100));
+    }
+  }
 
   return Object.entries(usado).map(([id, kg]) => {
-    const prod = ferts.find(p=>p.id===id);
+    const prod = byId(id);
     return {id, nome: prod.nome, kg: +kg.toFixed(3), isCalcinit: !!prod.isCalcinit};
   });
+}
+
+// % de N amoniacal do programa. Usa o campo formaN do produto:
+// 'amoniacal' e 'amidico' contam como amoniacal; 'nitrico' não.
+// Produtos antigos sem formaN → heurística: nitrato de Ca ou nitrato de K = nítrico; resto = amoniacal.
+function calcPctAmoniacal(prog, ci, produtos) {
+  let nTotal = 0, nAmon = 0;
+  const byId = id => produtos.find(p=>p.id===id);
+  prog.semanas.filter(s=>s.ativo).forEach(sem=>{
+    alocarSemana(sem, produtos, ci).forEach(item=>{
+      const p = byId(item.id); if(!p) return;
+      const n = item.kg*(p.garantiaN||0)/100;
+      if (n<=0) return;
+      nTotal += n;
+      let amoniacal;
+      if (p.formaN) {
+        amoniacal = (p.formaN === 'amoniacal' || p.formaN === 'amidico');
+      } else {
+        // fallback heurístico (produtos sem formaN definido)
+        const ehNitratoCa = (p.garantiaCa||0)>0;
+        const ehNitratoK  = (p.garantiaK||0)>0 && (p.garantiaS||0)===0;
+        amoniacal = !ehNitratoCa && !ehNitratoK;
+      }
+      if (amoniacal) nAmon += n;
+    });
+  });
+  return nTotal>0 ? (nAmon/nTotal*100) : 0;
 }
 
 function addDaysStr(dateStr, days) {
@@ -1180,7 +1260,7 @@ function renderFertig() {
 
   let body = '';
   if(S.fertTab==='programa')    body = renderFertigTotais(prog, ci);
-  else if(S.fertTab==='semanas')body = renderFertigSemanas(prog);
+  else if(S.fertTab==='semanas')body = renderFertigSemanas(prog, ci);
   else                           body = renderFertigCalendario(prog, ci);
 
   return `<div class="pad">${estufaSelector}${curvaSelector}${summaryCard}${tabToggle}${body}</div>`;
@@ -1194,7 +1274,7 @@ function renderFertigTotais(prog, ci) {
   let custoTotal = 0;
   if(fertsComPreco.length>0) {
     prog.semanas.filter(s=>s.ativo).forEach(sem=>{
-      alocarSemana(sem, S.produtos).forEach(item=>{
+      alocarSemana(sem, S.produtos, ci).forEach(item=>{
         const prod = fertsComPreco.find(p=>p.id===item.id);
         if(prod) custoTotal += item.kg * (prod.precoEmbalagem/prod.pesoEmbalagem);
       });
@@ -1210,6 +1290,23 @@ function renderFertigTotais(prog, ci) {
 
   const eficStr = `N=${ci.eficN||80}% · P=${ci.eficP||40}% · K=${ci.eficK||80}% · Ca efic=${ci.eficCa||50}% · Ca fertig=${ci.pctCaFertig||25}% · Mg=${ci.eficMg||60}%`;
 
+  // Indicador de N amoniacal (faróis: <20 verde, =20 amarelo, >20 vermelho)
+  const splitOn = temSplitConfigurado(ci);
+  const pctAmon = splitOn ? calcPctAmoniacal(prog, ci, S.produtos) : null;
+  const corAmon = pctAmon===null ? 'var(--muted)'
+    : pctAmon < 20 ? 'var(--green)'
+    : pctAmon === 20 ? 'var(--amber)'
+    : '#ef4444';
+  const amonCard = splitOn ? `<div class="card" style="padding:10px 14px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:11px;color:var(--text)">N amoniacal</div>
+        <div style="font-size:9px;color:var(--muted)">Referência Alvarenga: ≤20% (equilíbrio de pH)</div>
+      </div>
+      <div style="font-size:20px;font-weight:600;color:${corAmon}">${pctAmon.toFixed(0)}%</div>
+    </div>
+  </div>` : '';
+
   return `
     <div class="card">
       <div class="card-title">Totais do Ciclo (kg)</div>
@@ -1224,6 +1321,10 @@ function renderFertigTotais(prog, ci) {
         <div><span style="color:var(--muted)">Zinco total:</span> <span style="color:var(--text)">${t.Zn_g.toFixed(1)} g</span></div>
       </div>`:''}
     </div>
+
+    ${amonCard}
+
+    ${renderFontesSplit(ci)}
 
     ${fases.map(f=>`<div class="card">
       <div class="card-title">${f.label}</div>
@@ -1248,11 +1349,55 @@ function renderFertigTotais(prog, ci) {
   `;
 }
 
-function renderFertigSemanas(prog) {
+function renderFontesSplit(ci) {
+  const fertsP = S.produtos.filter(p=>p.categoria==='Fertilizantes'&&!p.isCalcinit&&(p.garantiaP||0)>0);
+  const fertsK = S.produtos.filter(p=>p.categoria==='Fertilizantes'&&!p.isCalcinit&&(p.garantiaK||0)>0);
+  const sf = ci.splitFontes || {P:{}, K:{}};
+
+  const linhaProduto = (p, nut, mapa) => {
+    const val = mapa[p.id] ?? '';
+    const det = nut==='P'
+      ? `P ${p.garantiaP||0}%${(p.garantiaK||0)>0?` · K ${p.garantiaK}%`:''}`
+      : `K ${p.garantiaK||0}%${(p.garantiaN||0)>0?` · N ${p.garantiaN}%`:''}`;
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+      <div style="flex:1;font-size:11px;color:var(--text)">${p.nome}
+        <span style="font-size:8px;color:var(--muted)">${det}</span>
+      </div>
+      <input type="number" min="0" max="100" step="1" value="${val}" placeholder="0"
+        data-split-nut="${nut}" data-split-prod="${p.id}" data-split-ciclo="${ci.id}"
+        style="width:64px;text-align:right;font-size:12px;padding:6px 8px">
+      <span style="font-size:11px;color:var(--muted)">%</span>
+    </div>`;
+  };
+
+  const somaP = Object.values(sf.P||{}).reduce((a,v)=>a+(+v||0),0);
+  const somaK = Object.values(sf.K||{}).reduce((a,v)=>a+(+v||0),0);
+  const avisoSoma = (s) => s>0 && s<100
+    ? `<div style="font-size:8px;color:var(--amber);margin-top:2px">Soma ${s}% — a 1ª fonte completa os ${100-s}% restantes</div>`
+    : s>100 ? `<div style="font-size:8px;color:#ef4444;margin-top:2px">Soma ${s}% — será normalizada para 100%</div>` : '';
+
+  return `<div class="card">
+    <div class="card-title">Fontes de Adubo — Split</div>
+    <div style="font-size:9px;color:var(--muted);margin-bottom:10px;line-height:1.5">
+      Defina o rateio % entre fontes. Ca = nitrato de cálcio (fixo). N restante = fechado por sulfato de amônio.
+      ${temSplitConfigurado(ci)?'':'<span style="color:var(--amber)">Sem split configurado: usando método automático (maior %).</span>'}
+    </div>
+
+    <div style="font-size:8px;color:#fbbf24;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Fósforo (P₂O₅)</div>
+    ${fertsP.length?fertsP.map(p=>linhaProduto(p,'P',sf.P||{})).join(''):'<div style="font-size:10px;color:var(--muted);font-style:italic;margin-bottom:6px">Nenhum fertilizante com P cadastrado.</div>'}
+    ${avisoSoma(somaP)}
+
+    <div style="font-size:8px;color:#4ade80;text-transform:uppercase;letter-spacing:.08em;margin:10px 0 6px">Potássio (K₂O)</div>
+    ${fertsK.length?fertsK.map(p=>linhaProduto(p,'K',sf.K||{})).join(''):'<div style="font-size:10px;color:var(--muted);font-style:italic">Nenhum fertilizante com K cadastrado.</div>'}
+    ${avisoSoma(somaK)}
+  </div>`;
+}
+
+function renderFertigSemanas(prog, ci) {
   const hasFerts = S.produtos.some(p=>p.categoria==='Fertilizantes'&&((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)>0));
 
   return prog.semanas.filter(s=>s.ativo).map(sem=>{
-    const alocado = alocarSemana(sem, S.produtos);
+    const alocado = alocarSemana(sem, S.produtos, ci);
     const calcs = alocado.filter(a=>a.isCalcinit);
     const outros = alocado.filter(a=>!a.isCalcinit);
 
@@ -1289,7 +1434,7 @@ function renderFertigCalendario(prog, ci) {
     if(next){ S.fertSemana = next.semana; sem = next; } else return `<div class="card"><div class="empty">Nenhuma semana ativa.</div></div>`;
   }
 
-  const alocado  = alocarSemana(sem, S.produtos);
+  const alocado  = alocarSemana(sem, S.produtos, ci);
   const calcs    = alocado.filter(a=>a.isCalcinit);
   const outros   = alocado.filter(a=>!a.isCalcinit);
   const kgCalcDia  = calcs.reduce((s,a)=>s+a.kg,0) / 2;
@@ -1387,6 +1532,13 @@ function renderProdutoForm(p = {}) {
         <div class="grid2" style="margin-bottom:8px">
           <div><label class="lbl">B %</label><input type="number" id="m-prod-gb"  min="0" max="100" step="0.01" value="${p.garantiaB ||''}" placeholder="0"></div>
           <div><label class="lbl">Zn %</label><input type="number" id="m-prod-gzn" min="0" max="100" step="0.01" value="${p.garantiaZn||''}" placeholder="0"></div>
+        </div>
+        <div style="margin-bottom:8px">
+          <label class="lbl">Forma do N <span style="color:var(--muted);font-size:9px">(p/ indicador de pH / amoniacal)</span></label>
+          <select id="m-prod-forma-n">
+            ${[['nitrico','Nítrico (NO₃⁻)'],['amoniacal','Amoniacal (NH₄⁺)'],['amidico','Amídico (ureia)']].map(([v,l])=>
+              `<option value="${v}"${(p.formaN||'nitrico')===v?' selected':''}>${l}</option>`).join('')}
+          </select>
         </div>
         <div style="font-size:9px;color:var(--green);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;margin-top:8px">Precificação</div>
         <div class="grid2" style="margin-bottom:4px">
@@ -2032,6 +2184,30 @@ function attachEvents() {
     });
   }
 
+  // ── Fertig: inputs de split de fontes (P e K) — salva no ciclo
+  document.querySelectorAll('[data-split-prod]').forEach(inp=>{
+    let splitTimer;
+    inp.addEventListener('input', ()=>{
+      clearTimeout(splitTimer);
+      splitTimer = setTimeout(async ()=>{
+        const cicloId = inp.dataset.splitCiclo;
+        const nut     = inp.dataset.splitNut;   // 'P' ou 'K'
+        const prodId  = inp.dataset.splitProd;
+        const val     = Math.min(Math.max(+inp.value||0, 0), 100);
+        const ci = S.ciclos.find(c=>c.id===cicloId);
+        if(!ci) return;
+        const sf = JSON.parse(JSON.stringify(ci.splitFontes || {P:{}, K:{}}));
+        if(!sf[nut]) sf[nut] = {};
+        if(val>0) sf[nut][prodId] = val; else delete sf[nut][prodId];
+        ci.splitFontes = sf;                    // otimista (atualiza recálculo do indicador)
+        try {
+          await updateDoc(doc(db,'ciclos',cicloId),{splitFontes: sf});
+        } catch(e){ console.error('Erro ao salvar split:', e); }
+        render();
+      }, 600);
+    });
+  });
+
   // ── Fertig: selecionar curva de extração (salva no ciclo)
   document.querySelectorAll('[data-fertig-curva]').forEach(btn=>{
     btn.addEventListener('click',()=>{
@@ -2261,6 +2437,7 @@ async function salvarProduto() {
       garantiaCa: g('m-prod-gca'),garantiaMg: g('m-prod-gmg'),garantiaS:  g('m-prod-gs'),
       garantiaB:  g('m-prod-gb'), garantiaZn: g('m-prod-gzn'),
       precoEmbalagem: g('m-prod-preco-emb'), pesoEmbalagem: g('m-prod-peso-emb'),
+      formaN: document.getElementById('m-prod-forma-n')?.value||'nitrico',
       isCalcinit: document.getElementById('m-prod-calcinit')?.checked||false,
     }:{}),
     createdAt: serverTimestamp(),
@@ -2287,6 +2464,7 @@ async function salvarEditProduto() {
       garantiaCa: g('m-prod-gca'),garantiaMg: g('m-prod-gmg'),garantiaS:  g('m-prod-gs'),
       garantiaB:  g('m-prod-gb'), garantiaZn: g('m-prod-gzn'),
       precoEmbalagem: g('m-prod-preco-emb'), pesoEmbalagem: g('m-prod-peso-emb'),
+      formaN: document.getElementById('m-prod-forma-n')?.value||'nitrico',
       isCalcinit: document.getElementById('m-prod-calcinit')?.checked||false,
     }:{}),
   };
