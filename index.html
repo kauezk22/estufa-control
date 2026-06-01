@@ -162,6 +162,8 @@ const S = {
 const uid = () => Math.random().toString(36).slice(2,9);
 const today = () => new Date().toISOString().slice(0,10);
 const fmt$ = n => (+n||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:2});
+// nzf: lê campo numérico aceitando 0 como válido; usa default só se vazio/inexistente
+const nzf = (id, def) => { const el=document.getElementById(id); if(!el) return def; const v=el.value; const n=+v; return (v===''||v==null||isNaN(n))?def:n; };
 const fmtD = s => s ? s.slice(0,10).split('-').reverse().join('/') : '—';
 const fmtMes = s => { const [y,m]=s.split('-'); const ms=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']; return ms[+m-1]+'/'+y.slice(2); };
 const parseDate = s => { const [y,m,d]=s.split('-').map(Number); return Date.UTC(y,m-1,d); };
@@ -984,24 +986,32 @@ function calcFertigPrograma(ciclo, curvaKey) {
   const metaKg  = +ciclo.metaKgPe || 10;
   const prodTon = plantas * metaKg / 1000;
 
-  const eficN  = (+ciclo.eficN  || 80) / 100;
-  const eficP  = (+ciclo.eficP  || 40) / 100;
-  const eficK  = (+ciclo.eficK  || 80) / 100;
-  const eficCa = (+ciclo.eficCa || 50) / 100;
-  const eficMg = (+ciclo.eficMg || 60) / 100;
-  const pctCa  = (+ciclo.pctCaFertig || 25) / 100;
-  const fatorRed = 1 - Math.min(Math.max(+(ciclo.reducaoPrograma||0), 0), 100) / 100;
+  // nz: aceita 0 como valor válido; só usa default se vazio/null/NaN
+  const nz = (v, def) => { const n = +v; return (v===''||v==null||isNaN(n)) ? def : n; };
+
+  const eficN  = nz(ciclo.eficN,  80) / 100;
+  const eficP  = nz(ciclo.eficP,  40) / 100;
+  const eficK  = nz(ciclo.eficK,  80) / 100;
+  const eficCa = nz(ciclo.eficCa, 50) / 100;
+  const eficMg = nz(ciclo.eficMg, 60) / 100;
+  const pctCa  = nz(ciclo.pctCaFertig, 25) / 100;
+  const fatorRed = 1 - Math.min(Math.max(nz(ciclo.reducaoPrograma, 0), 0), 100) / 100;
 
   const totN   = prodTon * curva.N  / eficN  * fatorRed;
   const totP   = prodTon * curva.P  / eficP  * P2O5_FATOR * fatorRed;
   const totK   = prodTon * curva.K  / eficK  * K2O_FATOR  * fatorRed;
-  const totCa  = prodTon * curva.Ca / eficCa * pctCa       * fatorRed;
+  const totCa  = prodTon * curva.Ca / eficCa * pctCa;   // Ca NÃO entra na redução geral (controlado via Ca fertig)
   const totMg  = prodTon * curva.Mg / eficMg               * fatorRed;
   const totS   = prodTon * curva.S                         * fatorRed;
-  const totB   = prodTon > 0 ? prodTon * curva.B_gton  / EFIC_MICRO * fatorRed : 0;
-  const totZn  = prodTon > 0 ? prodTon * curva.Zn_gton / EFIC_MICRO * fatorRed : 0;
 
   const semanasAtivas = DIST_FERTIG.filter(d=>d.some(x=>x>0)).length;
+
+  // Regra Alvarenga (comunicação pessoal) para B e Zn: 1g de PRODUTO/planta por aplicação,
+  // alternando — B nas semanas 3,5,7,9,11,13 (6x) e Zn nas 4,6,8,10 (4x). Ignora a curva.
+  const SEMANAS_B  = [3,5,7,9,11,13];
+  const SEMANAS_ZN = [4,6,8,10];
+  const DOSE_BZN_G_PLANTA = 1;             // g de produto por planta por aplicação
+  const dosePlanta = plantas * DOSE_BZN_G_PLANTA;   // g por aplicação (todas as plantas)
 
   const semanas = DIST_FERTIG.map((d, i) => {
     const semana = i + 1;
@@ -1011,13 +1021,17 @@ function calcFertigPrograma(ciclo, curvaKey) {
       semana, dat: i*7+1, fase, ativo,
       N: totN*d[0], P2O5: totP*d[1], K2O: totK*d[2],
       Ca: totCa*d[3], Mg: totMg*d[4], S: totS*d[5],
-      B_g:  ativo ? totB  / semanasAtivas : 0,
-      Zn_g: ativo ? totZn / semanasAtivas : 0,
+      B_g:  SEMANAS_B.includes(semana)  ? dosePlanta : 0,
+      Zn_g: SEMANAS_ZN.includes(semana) ? dosePlanta : 0,
     };
   });
 
+  // Totais de B e Zn agora vêm da soma das aplicações (não da curva)
+  const totB_aplic  = SEMANAS_B.length  * dosePlanta;
+  const totZn_aplic = SEMANAS_ZN.length * dosePlanta;
+
   return {
-    totais: {N:totN,P2O5:totP,K2O:totK,Ca:totCa,Mg:totMg,S:totS,B_g:totB,Zn_g:totZn},
+    totais: {N:totN,P2O5:totP,K2O:totK,Ca:totCa,Mg:totMg,S:totS,B_g:totB_aplic,Zn_g:totZn_aplic},
     semanas, prodTon, plantas,
   };
 }
@@ -1052,7 +1066,7 @@ function fracoesSplit(mapa) {
 function alocarSemana(targets, produtos, ci) {
   const ferts = produtos.filter(p =>
     p.categoria === 'Fertilizantes' &&
-    ((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)>0)
+    ((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)+(p.garantiaB||0)+(p.garantiaZn||0)>0)
   );
   if (!targets.ativo || ferts.length === 0) return [];
 
@@ -1073,7 +1087,8 @@ function alocarSemana(targets, produtos, ci) {
 
   if (!temSplitConfigurado(ci)) {
     // ── GREEDY LEGADO ──
-    ferts.filter(p=>p.isCalcinit&&(p.garantiaCa||0)>0).slice(0,1)
+    ferts.filter(p=>(p.garantiaCa||0)>0)
+      .sort((a,b)=>(b.isCalcinit?1:0)-(a.isCalcinit?1:0) || b.garantiaCa-a.garantiaCa).slice(0,1)
       .forEach(p => rem.Ca>0.001 && addKg(p, rem.Ca/(p.garantiaCa/100)));
     ferts.filter(p=>!p.isCalcinit&&(p.garantiaP||0)>0&&!usado[p.id])
       .sort((a,b)=>b.garantiaP-a.garantiaP).slice(0,1)
@@ -1095,8 +1110,9 @@ function alocarSemana(targets, produtos, ci) {
     const sf = ci.splitFontes || {};
     const alvoP = targets.P2O5;
 
-    // 1. Ca → Calcinit (lança N nítrico de carona)
-    ferts.filter(p=>p.isCalcinit&&(p.garantiaCa||0)>0).slice(0,1)
+    // 1. Ca → fonte de cálcio (prioriza Calcinit; flag isCalcinit só decide os dias ter/qui)
+    ferts.filter(p=>(p.garantiaCa||0)>0)
+      .sort((a,b)=>(b.isCalcinit?1:0)-(a.isCalcinit?1:0) || b.garantiaCa-a.garantiaCa).slice(0,1)
       .forEach(p => rem.Ca>0.001 && addKg(p, rem.Ca/(p.garantiaCa/100)));
 
     // 2. P₂O₅ → rateio entre fontes (K do MKP vira bônus que abate)
@@ -1105,25 +1121,43 @@ function alocarSemana(targets, produtos, ci) {
       if (p && (p.garantiaP||0)>0) addKg(p, (alvoP*frac)/(p.garantiaP/100));
     });
 
-    // 3. K₂O → rateio sobre o que falta (já descontado o K do MKP), lança N de carona
+    // 3. K₂O → rateio sobre o que falta (já descontado o K do MKP), lança N de carona.
+    //    Ignora fontes que também têm P (ex: MKP) — entram só no rateio de P.
     const faltaK = Math.max(rem.K2O, 0);
-    fracoesSplit(sf.K).forEach(([id,frac])=>{
+    const mapaK = {};
+    Object.entries(sf.K||{}).forEach(([id,v])=>{
       const p = byId(id);
-      if (p && (p.garantiaK||0)>0) addKg(p, (faltaK*frac)/(p.garantiaK/100));
+      if (p && (p.garantiaK||0)>0 && (p.garantiaP||0)===0) mapaK[id] = v;
+    });
+    fracoesSplit(mapaK).forEach(([id,frac])=>{
+      const p = byId(id);
+      if (p) addKg(p, (faltaK*frac)/(p.garantiaK/100));
     });
 
-    // 4. Mg → maior garantia disponível
-    ferts.filter(p=>!p.isCalcinit&&(p.garantiaMg||0)>0&&!usado[p.id])
+    // 4. Mg → maior garantia disponível (não reusa o que já entrou)
+    ferts.filter(p=>(p.garantiaMg||0)>0&&!usado[p.id])
       .sort((a,b)=>b.garantiaMg-a.garantiaMg).slice(0,1)
       .forEach(p => rem.Mg>0.001 && addKg(p, rem.Mg/(p.garantiaMg/100)));
 
-    // 5. N restante → sulfato de amônio (maior %N entre não-Calcinit, não-nitrato-de-Ca)
+    // 5. N restante → sulfato de amônio (maior %N entre fontes SEM Ca, ou seja, não-nitrato-de-Ca)
     if (rem.N>0.001) {
       const fonteN = ferts
-        .filter(p=>!p.isCalcinit&&(p.garantiaN||0)>0&&(p.garantiaCa||0)===0)
+        .filter(p=>(p.garantiaN||0)>0&&(p.garantiaCa||0)===0&&!usado[p.id])
         .sort((a,b)=>b.garantiaN-a.garantiaN)[0];
       if (fonteN) addKg(fonteN, rem.N/(fonteN.garantiaN/100));
     }
+  }
+
+  // Micros B e Zn (regra Alvarenga): alocados como PRODUTO em g, nas semanas com aplicação.
+  // targets.B_g / targets.Zn_g já vêm em gramas de PRODUTO/aplicação. Identifica a fonte
+  // pela maior garantia de B (ácido bórico) e de Zn (sulfato de zinco).
+  if ((targets.B_g||0) > 0) {
+    const fonteB = ferts.filter(p=>(p.garantiaB||0)>0).sort((a,b)=>b.garantiaB-a.garantiaB)[0];
+    if (fonteB) usado[fonteB.id] = (usado[fonteB.id]||0) + (targets.B_g/1000); // g → kg
+  }
+  if ((targets.Zn_g||0) > 0) {
+    const fonteZn = ferts.filter(p=>(p.garantiaZn||0)>0).sort((a,b)=>b.garantiaZn-a.garantiaZn)[0];
+    if (fonteZn) usado[fonteZn.id] = (usado[fonteZn.id]||0) + (targets.Zn_g/1000); // g → kg
   }
 
   return Object.entries(usado).map(([id, kg]) => {
@@ -1132,31 +1166,24 @@ function alocarSemana(targets, produtos, ci) {
   });
 }
 
-// % de N amoniacal do programa. Usa o campo formaN do produto:
-// 'amoniacal' e 'amidico' contam como amoniacal; 'nitrico' não.
-// Produtos antigos sem formaN → heurística: nitrato de Ca ou nitrato de K = nítrico; resto = amoniacal.
+// % de N amoniacal do programa. SEM heurística: usa só o campo formaN.
+// Retorna {pct, faltando[]}. Se algum produto com N não tiver formaN, pct=null.
 function calcPctAmoniacal(prog, ci, produtos) {
   let nTotal = 0, nAmon = 0;
+  const faltando = new Set();
   const byId = id => produtos.find(p=>p.id===id);
   prog.semanas.filter(s=>s.ativo).forEach(sem=>{
     alocarSemana(sem, produtos, ci).forEach(item=>{
       const p = byId(item.id); if(!p) return;
       const n = item.kg*(p.garantiaN||0)/100;
       if (n<=0) return;
+      if (!p.formaN) { faltando.add(p.nome); return; }
       nTotal += n;
-      let amoniacal;
-      if (p.formaN) {
-        amoniacal = (p.formaN === 'amoniacal' || p.formaN === 'amidico');
-      } else {
-        // fallback heurístico (produtos sem formaN definido)
-        const ehNitratoCa = (p.garantiaCa||0)>0;
-        const ehNitratoK  = (p.garantiaK||0)>0 && (p.garantiaS||0)===0;
-        amoniacal = !ehNitratoCa && !ehNitratoK;
-      }
-      if (amoniacal) nAmon += n;
+      if (p.formaN === 'amoniacal' || p.formaN === 'amidico') nAmon += n;
     });
   });
-  return nTotal>0 ? (nAmon/nTotal*100) : 0;
+  if (faltando.size > 0) return { pct: null, faltando: [...faltando] };
+  return { pct: nTotal>0 ? (nAmon/nTotal*100) : 0, faltando: [] };
 }
 
 function addDaysStr(dateStr, days) {
@@ -1288,22 +1315,29 @@ function renderFertigTotais(prog, ci) {
       N:tot('N'),P2O5:tot('P2O5'),K2O:tot('K2O'),Ca:tot('Ca'),Mg:tot('Mg'),S:tot('S')};
   });
 
-  const eficStr = `N=${ci.eficN||80}% · P=${ci.eficP||40}% · K=${ci.eficK||80}% · Ca efic=${ci.eficCa||50}% · Ca fertig=${ci.pctCaFertig||25}% · Mg=${ci.eficMg||60}%`;
+  const eficStr = `N=${ci.eficN??80}% · P=${ci.eficP??40}% · K=${ci.eficK??80}% · Ca efic=${ci.eficCa??50}% · Ca fertig=${ci.pctCaFertig??25}% · Mg=${ci.eficMg??60}%`;
 
   // Indicador de N amoniacal (faróis: <20 verde, =20 amarelo, >20 vermelho)
   const splitOn = temSplitConfigurado(ci);
-  const pctAmon = splitOn ? calcPctAmoniacal(prog, ci, S.produtos) : null;
-  const corAmon = pctAmon===null ? 'var(--muted)'
+  const amonRes = splitOn ? calcPctAmoniacal(prog, ci, S.produtos) : null;
+  const pctAmon = amonRes ? amonRes.pct : null;       // null = sem dado de formaN
+  const faltandoN = amonRes ? amonRes.faltando : [];
+  const semDado = splitOn && pctAmon === null;
+  const corAmon = (pctAmon===null) ? 'var(--muted)'
     : pctAmon < 20 ? 'var(--green)'
     : pctAmon === 20 ? 'var(--amber)'
     : '#ef4444';
+  const amonValor = semDado ? '--' : (pctAmon!==null ? pctAmon.toFixed(0)+'%' : '--');
+  const amonNota = semDado
+    ? `Defina a forma do N em: ${faltandoN.join(', ')}`
+    : 'Referência Alvarenga: ≤20% (equilíbrio de pH)';
   const amonCard = splitOn ? `<div class="card" style="padding:10px 14px">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <div>
         <div style="font-size:11px;color:var(--text)">N amoniacal</div>
-        <div style="font-size:9px;color:var(--muted)">Referência Alvarenga: ≤20% (equilíbrio de pH)</div>
+        <div style="font-size:9px;color:var(--muted)">${amonNota}</div>
       </div>
-      <div style="font-size:20px;font-weight:600;color:${corAmon}">${pctAmon.toFixed(0)}%</div>
+      <div style="font-size:20px;font-weight:600;color:${corAmon}">${amonValor}</div>
     </div>
   </div>` : '';
 
@@ -1351,7 +1385,7 @@ function renderFertigTotais(prog, ci) {
 
 function renderFontesSplit(ci) {
   const fertsP = S.produtos.filter(p=>p.categoria==='Fertilizantes'&&!p.isCalcinit&&(p.garantiaP||0)>0);
-  const fertsK = S.produtos.filter(p=>p.categoria==='Fertilizantes'&&!p.isCalcinit&&(p.garantiaK||0)>0);
+  const fertsK = S.produtos.filter(p=>p.categoria==='Fertilizantes'&&!p.isCalcinit&&(p.garantiaK||0)>0&&(p.garantiaP||0)===0);
   const sf = ci.splitFontes || {P:{}, K:{}};
 
   const linhaProduto = (p, nut, mapa) => {
@@ -1533,11 +1567,12 @@ function renderProdutoForm(p = {}) {
           <div><label class="lbl">B %</label><input type="number" id="m-prod-gb"  min="0" max="100" step="0.01" value="${p.garantiaB ||''}" placeholder="0"></div>
           <div><label class="lbl">Zn %</label><input type="number" id="m-prod-gzn" min="0" max="100" step="0.01" value="${p.garantiaZn||''}" placeholder="0"></div>
         </div>
-        <div style="margin-bottom:8px">
-          <label class="lbl">Forma do N <span style="color:var(--muted);font-size:9px">(p/ indicador de pH / amoniacal)</span></label>
+        <div id="m-prod-forma-n-box" style="margin-bottom:8px;display:${(+p.garantiaN>0)?'block':'none'}">
+          <label class="lbl">Forma do N <span style="color:var(--muted);font-size:9px">(obrigatório quando há N)</span></label>
           <select id="m-prod-forma-n">
+            <option value=""${!p.formaN?' selected':''}>— selecione —</option>
             ${[['nitrico','Nítrico (NO₃⁻)'],['amoniacal','Amoniacal (NH₄⁺)'],['amidico','Amídico (ureia)']].map(([v,l])=>
-              `<option value="${v}"${(p.formaN||'nitrico')===v?' selected':''}>${l}</option>`).join('')}
+              `<option value="${v}"${p.formaN===v?' selected':''}>${l}</option>`).join('')}
           </select>
         </div>
         <div style="font-size:9px;color:var(--green);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;margin-top:8px">Precificação</div>
@@ -1734,9 +1769,9 @@ function renderModal() {
           <div><label class="lbl">N %</label><input type="number" id="ec-efic-n"  min="0" max="100" value="${ci.eficN ||80}"></div>
           <div><label class="lbl">P %</label><input type="number" id="ec-efic-p"  min="0" max="100" value="${ci.eficP ||40}"></div>
           <div><label class="lbl">K %</label><input type="number" id="ec-efic-k"  min="0" max="100" value="${ci.eficK ||80}"></div>
-          <div><label class="lbl">Ca efic %</label><input type="number" id="ec-efic-ca" min="0" max="100" value="${ci.eficCa||50}"></div>
-          <div><label class="lbl">Mg %</label><input type="number" id="ec-efic-mg" min="0" max="100" value="${ci.eficMg||60}"></div>
-          <div><label class="lbl">Ca via fertig %</label><input type="number" id="ec-pct-ca-fertig" min="0" max="100" value="${ci.pctCaFertig||25}"></div>
+          <div><label class="lbl">Ca efic %</label><input type="number" id="ec-efic-ca" min="0" max="100" value="${ci.eficCa??50}"></div>
+          <div><label class="lbl">Mg %</label><input type="number" id="ec-efic-mg" min="0" max="100" value="${ci.eficMg??60}"></div>
+          <div><label class="lbl">Ca via fertig %</label><input type="number" id="ec-pct-ca-fertig" min="0" max="100" value="${ci.pctCaFertig??25}"></div>
         </div>
       </div>
       <button class="btn btn-green" id="btn-salvar-edit-ciclo">Salvar Alterações</button>`;
@@ -2162,6 +2197,15 @@ function attachEvents() {
     if(el) el.addEventListener('input', updatePrecoKg);
   });
 
+  // Produto: mostrar "Forma do N" só quando N% > 0
+  {
+    const nInput = document.getElementById('m-prod-gn');
+    const formaNBox = document.getElementById('m-prod-forma-n-box');
+    if(nInput && formaNBox) nInput.addEventListener('input', ()=>{
+      formaNBox.style.display = (+nInput.value > 0) ? 'block' : 'none';
+    });
+  }
+
   // ── Produto: salvar novo
   const btnSalvarProd = document.getElementById('btn-salvar-prod');
   if(btnSalvarProd) btnSalvarProd.addEventListener('click', salvarProduto);
@@ -2424,6 +2468,7 @@ async function salvarProduto() {
   const unidade = document.getElementById('m-prod-unidade')?.value?.trim();
   if(!nome||!unidade) return;
   const cat = document.getElementById('m-prod-cat')?.value||'';
+  if(cat==='Fertilizantes' && (+document.getElementById('m-prod-gn')?.value||0)>0 && !(document.getElementById('m-prod-forma-n')?.value||'')){ alert('Selecione a forma do N (nítrico, amoniacal ou amídico).'); return; }
   const g = id => { const v=+document.getElementById(id)?.value; return isNaN(v)||v===0?null:v; };
   const entry = {
     nome, categoria: cat,
@@ -2437,7 +2482,7 @@ async function salvarProduto() {
       garantiaCa: g('m-prod-gca'),garantiaMg: g('m-prod-gmg'),garantiaS:  g('m-prod-gs'),
       garantiaB:  g('m-prod-gb'), garantiaZn: g('m-prod-gzn'),
       precoEmbalagem: g('m-prod-preco-emb'), pesoEmbalagem: g('m-prod-peso-emb'),
-      formaN: document.getElementById('m-prod-forma-n')?.value||'nitrico',
+      formaN: document.getElementById('m-prod-forma-n')?.value||null,
       isCalcinit: document.getElementById('m-prod-calcinit')?.checked||false,
     }:{}),
     createdAt: serverTimestamp(),
@@ -2451,6 +2496,7 @@ async function salvarEditProduto() {
   const unidade = document.getElementById('m-prod-unidade')?.value?.trim();
   if(!nome||!unidade) return;
   const cat = document.getElementById('m-prod-cat')?.value||'';
+  if(cat==='Fertilizantes' && (+document.getElementById('m-prod-gn')?.value||0)>0 && !(document.getElementById('m-prod-forma-n')?.value||'')){ alert('Selecione a forma do N (nítrico, amoniacal ou amídico).'); return; }
   const g = id => { const v=+document.getElementById(id)?.value; return isNaN(v)||v===0?null:v; };
   const updates = {
     nome, categoria: cat,
@@ -2464,7 +2510,7 @@ async function salvarEditProduto() {
       garantiaCa: g('m-prod-gca'),garantiaMg: g('m-prod-gmg'),garantiaS:  g('m-prod-gs'),
       garantiaB:  g('m-prod-gb'), garantiaZn: g('m-prod-gzn'),
       precoEmbalagem: g('m-prod-preco-emb'), pesoEmbalagem: g('m-prod-peso-emb'),
-      formaN: document.getElementById('m-prod-forma-n')?.value||'nitrico',
+      formaN: document.getElementById('m-prod-forma-n')?.value||null,
       isCalcinit: document.getElementById('m-prod-calcinit')?.checked||false,
     }:{}),
   };
@@ -2487,13 +2533,13 @@ async function salvarEditCiclo() {
     tipoMuda,
     portaEnxerto: tipoMuda==='porta-enxerto'?(document.getElementById('ec-pe-qual')?.value||''):'',
     obs:          document.getElementById('ec-obs')?.value||'',
-    metaKgPe:    +document.getElementById('ec-meta-kgpe')?.value||10,
-    eficN:       +document.getElementById('ec-efic-n')?.value||80,
-    eficP:       +document.getElementById('ec-efic-p')?.value||40,
-    eficK:       +document.getElementById('ec-efic-k')?.value||80,
-    eficCa:      +document.getElementById('ec-efic-ca')?.value||50,
-    eficMg:      +document.getElementById('ec-efic-mg')?.value||60,
-    pctCaFertig: +document.getElementById('ec-pct-ca-fertig')?.value||25,
+    metaKgPe:    nzf('ec-meta-kgpe',10),
+    eficN:       nzf('ec-efic-n',80),
+    eficP:       nzf('ec-efic-p',40),
+    eficK:       nzf('ec-efic-k',80),
+    eficCa:      nzf('ec-efic-ca',50),
+    eficMg:      nzf('ec-efic-mg',60),
+    pctCaFertig: nzf('ec-pct-ca-fertig',25),
   };
   const id = S.modalData.cicloId;
   S.modal=null; render();
@@ -2512,13 +2558,13 @@ async function criarCiclo() {
   const portaEnxerto = tipoMuda==='porta-enxerto'?(document.getElementById('m-pe-qual')?.value||''):'';
   const obs          = document.getElementById('m-obs')?.value||'';
   // Fertig params
-  const metaKgPe    = +document.getElementById('m-meta-kgpe')?.value||10;
-  const eficN       = +document.getElementById('m-efic-n')?.value||80;
-  const eficP       = +document.getElementById('m-efic-p')?.value||40;
-  const eficK       = +document.getElementById('m-efic-k')?.value||80;
-  const eficCa      = +document.getElementById('m-efic-ca')?.value||50;
-  const eficMg      = +document.getElementById('m-efic-mg')?.value||60;
-  const pctCaFertig = +document.getElementById('m-pct-ca-fertig')?.value||25;
+  const metaKgPe    = nzf('m-meta-kgpe',10);
+  const eficN       = nzf('m-efic-n',80);
+  const eficP       = nzf('m-efic-p',40);
+  const eficK       = nzf('m-efic-k',80);
+  const eficCa      = nzf('m-efic-ca',50);
+  const eficMg      = nzf('m-efic-mg',60);
+  const pctCaFertig = nzf('m-pct-ca-fertig',25);
   S.modal=null; render();
   const anterior = cicloAtivo(estufa);
   if(anterior) await updateDoc(doc(db,'ciclos',anterior.id),{encerrado:true, encerradoEm:today()});
