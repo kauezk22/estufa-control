@@ -1507,16 +1507,15 @@ function renderFertigCalendario(prog, ci) {
   const dias = diasFertigDe(ci, sem.semana);
   const diasCalc   = dias.calc;
   const diasOutros = dias.outros;
-  const nCalc   = diasCalc.length   || 1;
-  const nOutros = diasOutros.length || 1;
-  const kgCalcDia  = calcs.reduce((s,a)=>s+a.kg,0) / nCalc;
-  const kgOutrosDia= outros.reduce((s,a)=>s+a.kg,0) / nOutros;
 
   const prevSem = [...prog.semanas].reverse().find(s=>s.semana<sem.semana&&s.ativo);
   const nextSem = prog.semanas.find(s=>s.semana>sem.semana&&s.ativo);
 
-  // Build Mon-Fri dates for this week (week 1 = DAT 1)
-  const weekStartDate = addDaysStr(ci.plantio, (sem.semana-1)*7);
+  // Semana limpa Seg→Sex: parte da data correspondente à semana e recua até a segunda-feira.
+  const dataNaSemana = addDaysStr(ci.plantio, (sem.semana-1)*7);
+  const dowInicio = dowOf(dataNaSemana);            // 0=Dom,1=Seg,...,6=Sáb
+  const recuoSeg = dowInicio === 0 ? 6 : dowInicio - 1; // dias a recuar até a segunda
+  const weekStartDate = addDaysStr(dataNaSemana, -recuoSeg);
   const DOW_PT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   const weekDays = [];
   for(let d=0;d<7;d++){
@@ -1528,6 +1527,13 @@ function renderFertigCalendario(prog, ci) {
       isOther: diasOutros.includes(dow),
     });
   }
+
+  // Divide a dose pelos dias REALMENTE exibidos nesta semana (não pelo tamanho do padrão),
+  // porque a semana do calendário pode começar deslocada e não conter todos os dias do padrão.
+  const nCalc   = weekDays.filter(d=>d.isCalc).length  || 1;
+  const nOutros = weekDays.filter(d=>d.isOther).length || 1;
+  const kgCalcDia  = calcs.reduce((s,a)=>s+a.kg,0) / nCalc;
+  const kgOutrosDia= outros.reduce((s,a)=>s+a.kg,0) / nOutros;
 
   return `
     <div class="card" style="padding:10px 14px">
