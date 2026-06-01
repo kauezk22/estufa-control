@@ -164,6 +164,19 @@ const today = () => new Date().toISOString().slice(0,10);
 const fmt$ = n => (+n||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:2});
 // nzf: lê campo numérico aceitando 0 como válido; usa default só se vazio/inexistente
 const nzf = (id, def) => { const el=document.getElementById(id); if(!el) return def; const v=el.value; const n=+v; return (v===''||v==null||isNaN(n))?def:n; };
+// Dias de adubação por semana. dow: 1=Seg,2=Ter,3=Qua,4=Qui,5=Sex.
+// Default: Qua=calcinit; Seg,Sex=outros. Override por ciclo (ci.diasFertig) ou semana (ci.diasFertigSemana[n]).
+const DIAS_FERTIG_DEFAULT = { calc:[3], outros:[1,5] };
+const DOW_LABELS = {1:'Seg',2:'Ter',3:'Qua',4:'Qui',5:'Sex'};
+function diasFertigDe(ci, semana) {
+  const base = ci.diasFertig || DIAS_FERTIG_DEFAULT;
+  const ovr  = (ci.diasFertigSemana && ci.diasFertigSemana[semana]) || base;
+  return {
+    calc:   Array.isArray(ovr.calc)   ? ovr.calc   : DIAS_FERTIG_DEFAULT.calc,
+    outros: Array.isArray(ovr.outros) ? ovr.outros : DIAS_FERTIG_DEFAULT.outros,
+  };
+}
+function rotuloDias(dows){ return (dows||[]).map(d=>DOW_LABELS[d]).join(', ') || '—'; }
 const fmtD = s => s ? s.slice(0,10).split('-').reverse().join('/') : '—';
 const fmtMes = s => { const [y,m]=s.split('-'); const ms=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']; return ms[+m-1]+'/'+y.slice(2); };
 const parseDate = s => { const [y,m,d]=s.split('-').map(Number); return Date.UTC(y,m-1,d); };
@@ -1430,10 +1443,28 @@ function renderFontesSplit(ci) {
 function renderFertigSemanas(prog, ci) {
   const hasFerts = S.produtos.some(p=>p.categoria==='Fertilizantes'&&((p.garantiaN||0)+(p.garantiaP||0)+(p.garantiaK||0)+(p.garantiaCa||0)+(p.garantiaMg||0)+(p.garantiaS||0)>0));
 
-  return prog.semanas.filter(s=>s.ativo).map(sem=>{
+  // Editor do padrão de dias de adubação do ciclo
+  const dPad = diasFertigDe(ci, -1); // -1 nunca tem override → retorna o padrão do ciclo
+  const estadoDia = dow => dPad.calc.includes(dow) ? 'calc' : dPad.outros.includes(dow) ? 'outros' : 'off';
+  const corDia = e => e==='calc' ? {bg:'#16a34a22',bd:'#16a34a55',tx:'var(--green)',lb:'Calcinit'} : e==='outros' ? {bg:'#1e40af22',bd:'#1e40af55',tx:'var(--blue)',lb:'Outros'} : {bg:'#080e08',bd:'var(--border)',tx:'var(--muted)',lb:'—'};
+  const editorDias = `<div class="card" style="padding:10px 14px;margin-bottom:10px">
+    <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px">Dias de adubação (padrão do ciclo)</div>
+    <div style="font-size:9px;color:var(--muted);margin-bottom:8px">Toque num dia para alternar: Outros → Calcinit → Folga. A dose da semana é dividida pelos dias de cada grupo.</div>
+    <div style="display:flex;gap:5px">
+      ${[1,2,3,4,5].map(dow=>{const e=estadoDia(dow);const c=corDia(e);return `<button data-dia-dow="${dow}" data-ciclo="${ci.id}" style="flex:1;padding:8px 4px;background:${c.bg};border:1px solid ${c.bd};border-radius:8px;cursor:pointer;text-align:center">
+        <div style="font-size:11px;font-weight:500;color:var(--text)">${DOW_LABELS[dow]}</div>
+        <div style="font-size:8px;color:${c.tx};margin-top:2px">${c.lb}</div>
+      </button>`}).join('')}
+    </div>
+  </div>`;
+
+  return editorDias + prog.semanas.filter(s=>s.ativo).map(sem=>{
     const alocado = alocarSemana(sem, S.produtos, ci);
     const calcs = alocado.filter(a=>a.isCalcinit);
     const outros = alocado.filter(a=>!a.isCalcinit);
+    const dias = diasFertigDe(ci, sem.semana);
+    const nCalc = dias.calc.length || 1;
+    const nOutros = dias.outros.length || 1;
 
     return `<div class="card" style="padding:10px 14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -1447,12 +1478,12 @@ function renderFertigSemanas(prog, ci) {
       </div>
       ${alocado.length>0?`
         ${calcs.length>0?`<div style="padding:6px 8px;margin-bottom:5px;background:#16a34a0d;border:1px solid #16a34a33;border-radius:6px">
-          <div style="font-size:8px;color:var(--green);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">Terça e Quinta — Calcinit</div>
-          ${calcs.map(a=>`<div style="font-size:11px;color:var(--text)">${a.nome}: <span style="color:var(--green);font-weight:500">${a.kg.toFixed(3)} kg/sem</span> <span style="color:var(--muted)">(${(a.kg/2).toFixed(3)} kg/dia)</span></div>`).join('')}
+          <div style="font-size:8px;color:var(--green);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">${rotuloDias(dias.calc)} — Calcinit</div>
+          ${calcs.map(a=>`<div style="font-size:11px;color:var(--text)">${a.nome}: <span style="color:var(--green);font-weight:500">${a.kg.toFixed(3)} kg/sem</span> <span style="color:var(--muted)">(${(a.kg/nCalc).toFixed(3)} kg/dia)</span></div>`).join('')}
         </div>`:''}
         ${outros.length>0?`<div style="padding:6px 8px;background:#1e40af0d;border:1px solid #1e40af33;border-radius:6px">
-          <div style="font-size:8px;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">Seg, Qua e Sex</div>
-          ${outros.map(a=>`<div style="font-size:11px;color:var(--text)">${a.nome}: <span style="color:var(--blue);font-weight:500">${a.kg.toFixed(3)} kg/sem</span> <span style="color:var(--muted)">(${(a.kg/3).toFixed(3)} kg/dia)</span></div>`).join('')}
+          <div style="font-size:8px;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">${rotuloDias(dias.outros)}</div>
+          ${outros.map(a=>`<div style="font-size:11px;color:var(--text)">${a.nome}: <span style="color:var(--blue);font-weight:500">${a.kg.toFixed(3)} kg/sem</span> <span style="color:var(--muted)">(${(a.kg/nOutros).toFixed(3)} kg/dia)</span></div>`).join('')}
         </div>`:''}
       `:`<div style="font-size:10px;color:var(--muted);font-style:italic">${hasFerts?'Sem produtos alocados para esta semana.':'Cadastre fertilizantes com garantias nutricionais.'}</div>`}
     </div>`;
@@ -1471,8 +1502,15 @@ function renderFertigCalendario(prog, ci) {
   const alocado  = alocarSemana(sem, S.produtos, ci);
   const calcs    = alocado.filter(a=>a.isCalcinit);
   const outros   = alocado.filter(a=>!a.isCalcinit);
-  const kgCalcDia  = calcs.reduce((s,a)=>s+a.kg,0) / 2;
-  const kgOutrosDia= outros.reduce((s,a)=>s+a.kg,0) / 3;
+
+  // Dias de adubação configuráveis (ver diasFertigDe). Cálcio e outros têm dias próprios.
+  const dias = diasFertigDe(ci, sem.semana);
+  const diasCalc   = dias.calc;
+  const diasOutros = dias.outros;
+  const nCalc   = diasCalc.length   || 1;
+  const nOutros = diasOutros.length || 1;
+  const kgCalcDia  = calcs.reduce((s,a)=>s+a.kg,0) / nCalc;
+  const kgOutrosDia= outros.reduce((s,a)=>s+a.kg,0) / nOutros;
 
   const prevSem = [...prog.semanas].reverse().find(s=>s.semana<sem.semana&&s.ativo);
   const nextSem = prog.semanas.find(s=>s.semana>sem.semana&&s.ativo);
@@ -1486,8 +1524,8 @@ function renderFertigCalendario(prog, ci) {
     const dow = dowOf(dt);
     if(dow===0||dow===6) continue;
     weekDays.push({dt, dow, label: DOW_PT[dow],
-      isCalc: dow===2||dow===4,   // Ter=2, Qui=4
-      isOther: dow===1||dow===3||dow===5, // Seg=1, Qua=3, Sex=5
+      isCalc: diasCalc.includes(dow),
+      isOther: diasOutros.includes(dow),
     });
   }
 
@@ -1520,7 +1558,7 @@ function renderFertigCalendario(prog, ci) {
             <div style="font-size:12px;font-weight:500;color:${tColor}">${day.label} <span style="font-size:10px;color:var(--muted)">${fmtD(day.dt).slice(0,5)}</span>${label?` <span style="font-size:8px;padding:1px 5px;border-radius:3px;border:1px solid ${bColor};color:${tColor}">${label}</span>`:''}</div>
             ${kgDia>0.001?`<div style="font-size:11px;color:${tColor};font-weight:500">${kgDia.toFixed(3)} kg</div>`:''}
           </div>
-          ${prods.length>0?prods.map(p=>`<div style="font-size:10px;color:var(--text);padding-left:8px">· ${p.nome}: <span style="color:${tColor}">${(day.isCalc?p.kg/2:p.kg/3).toFixed(3)} kg</span></div>`).join(''):'<div style="font-size:10px;color:var(--muted);padding-left:4px">—</div>'}
+          ${prods.length>0?prods.map(p=>`<div style="font-size:10px;color:var(--text);padding-left:8px">· ${p.nome}: <span style="color:${tColor}">${(day.isCalc?p.kg/nCalc:p.kg/nOutros).toFixed(3)} kg</span></div>`).join(''):'<div style="font-size:10px;color:var(--muted);padding-left:4px">—</div>'}
         </div>`;
       }).join('')}
     </div>
@@ -2213,6 +2251,27 @@ function attachEvents() {
   // ── Produto: salvar edição
   const btnSalvarEditProd = document.getElementById('btn-salvar-edit-prod');
   if(btnSalvarEditProd) btnSalvarEditProd.addEventListener('click', salvarEditProduto);
+
+  // ── Fertig: editor de dias de adubação (padrão do ciclo)
+  document.querySelectorAll('[data-dia-dow]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const dow = +btn.dataset.diaDow;
+      const cicloId = btn.dataset.ciclo;
+      const ci = S.ciclos.find(c=>c.id===cicloId);
+      if(!ci) return;
+      const base = ci.diasFertig || DIAS_FERTIG_DEFAULT;
+      const calc   = new Set(base.calc);
+      const outros = new Set(base.outros);
+      // Ciclo de estado: outros → calc → off → outros
+      if(outros.has(dow))      { outros.delete(dow); calc.add(dow); }
+      else if(calc.has(dow))   { calc.delete(dow); }              // vira off
+      else                     { outros.add(dow); }               // off → outros
+      const novo = { calc:[...calc].sort(), outros:[...outros].sort() };
+      ci.diasFertig = novo;   // otimista
+      render();
+      try { await updateDoc(doc(db,'ciclos',cicloId),{diasFertig: novo}); } catch(e){}
+    });
+  });
 
   // ── Fertig: redução geral do programa
   const reducaoInput = document.getElementById('fertig-reducao');
