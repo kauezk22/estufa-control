@@ -1458,10 +1458,49 @@ function renderFertigSemanas(prog, ci) {
     </div>
   </div>`;
 
-  return editorDias + prog.semanas.filter(s=>s.ativo).map(sem=>{
+  // ── Resumo total de insumos do programa ──────────────────────────────────
+  const totaisInsumos = {};
+  prog.semanas.filter(s=>s.ativo).forEach(sem => {
+    alocarSemana(sem, S.produtos, ci).forEach(item => {
+      if (!totaisInsumos[item.id]) totaisInsumos[item.id] = { ...item, kg: 0 };
+      totaisInsumos[item.id].kg += item.kg;
+    });
+  });
+  const listaInsumos = Object.values(totaisInsumos)
+    .sort((a,b) => (b.isCalcinit?1:0)-(a.isCalcinit?1:0) || b.kg-a.kg);
+  const nSemanasAtivas = prog.semanas.filter(s=>s.ativo).length;
+
+  const resumoInsumos = listaInsumos.length > 0 ? `<div class="card" style="border-color:#1e3a5f">
+    <div class="card-title">Necessidade Total do Programa</div>
+    <div style="font-size:9px;color:var(--muted);margin-bottom:10px">${nSemanasAtivas} semanas ativas · soma de todos os produtos</div>
+    ${listaInsumos.map(item => {
+      const prod = S.produtos.find(p=>p.id===item.id);
+      const pesoEmb = +(prod?.pesoEmbalagem||0);
+      const sacos = pesoEmb > 0 ? item.kg / pesoEmb : null;
+      const kgStr = item.kg >= 0.5 ? item.kg.toFixed(2)+' kg' : (item.kg*1000).toFixed(0)+' g';
+      const cor = item.isCalcinit ? 'var(--green)' : 'var(--blue)';
+      const sacLine = sacos !== null ? `<div style="font-size:10px;color:var(--muted)">${item.kg.toFixed(2)} ÷ ${pesoEmb} kg = <span style="color:${cor};font-weight:500">${sacos.toFixed(2)} sc</span></div>` : '';
+      const embLine = pesoEmb > 0 ? `<div style="font-size:9px;color:var(--muted);margin-top:1px">emb. ${pesoEmb} kg/sc</div>` : '';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.nome}</div>
+          ${embLine}
+        </div>
+        <div style="text-align:right;flex-shrink:0;margin-left:12px">
+          <div style="font-size:14px;font-weight:500;color:${cor}">${kgStr}</div>
+          ${sacLine}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>` : '';
+
+  return editorDias + resumoInsumos + prog.semanas.filter(s=>s.ativo).map(sem=>{
     const alocado = alocarSemana(sem, S.produtos, ci);
     const calcs = alocado.filter(a=>a.isCalcinit);
     const outros = alocado.filter(a=>!a.isCalcinit);
+    const isMicro = a => { const p=S.produtos.find(x=>x.id===a.id); return (p?.garantiaB||0)>0||(p?.garantiaZn||0)>0; };
+    const micros    = outros.filter(a=>isMicro(a));
+    const regulares = outros.filter(a=>!isMicro(a));
     const dias = diasFertigDe(ci, sem.semana);
     const nCalc = dias.calc.length || 1;
     const nOutros = dias.outros.length || 1;
@@ -1481,9 +1520,13 @@ function renderFertigSemanas(prog, ci) {
           <div style="font-size:8px;color:var(--green);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">${rotuloDias(dias.calc)} — Calcinit</div>
           ${calcs.map(a=>`<div style="font-size:11px;color:var(--text)">${a.nome}: <span style="color:var(--green);font-weight:500">${a.kg.toFixed(3)} kg/sem</span> <span style="color:var(--muted)">(${(a.kg/nCalc).toFixed(3)} kg/dia)</span></div>`).join('')}
         </div>`:''}
-        ${outros.length>0?`<div style="padding:6px 8px;background:#1e40af0d;border:1px solid #1e40af33;border-radius:6px">
+        ${regulares.length>0?`<div style="padding:6px 8px;${micros.length>0?'margin-bottom:5px;':''}background:#1e40af0d;border:1px solid #1e40af33;border-radius:6px">
           <div style="font-size:8px;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">${rotuloDias(dias.outros)}</div>
-          ${outros.map(a=>`<div style="font-size:11px;color:var(--text)">${a.nome}: <span style="color:var(--blue);font-weight:500">${a.kg.toFixed(3)} kg/sem</span> <span style="color:var(--muted)">(${(a.kg/nOutros).toFixed(3)} kg/dia)</span></div>`).join('')}
+          ${regulares.map(a=>`<div style="font-size:11px;color:var(--text)">${a.nome}: <span style="color:var(--blue);font-weight:500">${a.kg.toFixed(3)} kg/sem</span> <span style="color:var(--muted)">(${(a.kg/nOutros).toFixed(3)} kg/dia)</span></div>`).join('')}
+        </div>`:''}
+        ${micros.length>0?`<div style="padding:6px 8px;background:#3b0d6422;border:1px solid #7c3aed55;border-radius:6px">
+          <div style="font-size:8px;color:#a78bfa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">Micros — 1 aplic./sem</div>
+          ${micros.map(a=>{const gStr=a.kg>=1?a.kg.toFixed(3)+' kg':(a.kg*1000).toFixed(0)+' g';return `<div style="font-size:11px;color:var(--text)">${a.nome}: <span style="color:#a78bfa;font-weight:500">${gStr}/sem</span></div>`;}).join('')}
         </div>`:''}
       `:`<div style="font-size:10px;color:var(--muted);font-style:italic">${hasFerts?'Sem produtos alocados para esta semana.':'Cadastre fertilizantes com garantias nutricionais.'}</div>`}
     </div>`;
@@ -1502,6 +1545,9 @@ function renderFertigCalendario(prog, ci) {
   const alocado  = alocarSemana(sem, S.produtos, ci);
   const calcs    = alocado.filter(a=>a.isCalcinit);
   const outros   = alocado.filter(a=>!a.isCalcinit);
+  const isMicroC = a => { const p=S.produtos.find(x=>x.id===a.id); return (p?.garantiaB||0)>0||(p?.garantiaZn||0)>0; };
+  const microsC    = outros.filter(a=>isMicroC(a));
+  const regularesC = outros.filter(a=>!isMicroC(a));
 
   // Dias de adubação configuráveis (ver diasFertigDe). Cálcio e outros têm dias próprios.
   const dias = diasFertigDe(ci, sem.semana);
@@ -1533,7 +1579,7 @@ function renderFertigCalendario(prog, ci) {
   const nCalc   = weekDays.filter(d=>d.isCalc).length  || 1;
   const nOutros = weekDays.filter(d=>d.isOther).length || 1;
   const kgCalcDia  = calcs.reduce((s,a)=>s+a.kg,0) / nCalc;
-  const kgOutrosDia= outros.reduce((s,a)=>s+a.kg,0) / nOutros;
+  const kgOutrosDia= regularesC.reduce((s,a)=>s+a.kg,0) / nOutros;
 
   return `
     <div class="card" style="padding:10px 14px">
@@ -1554,7 +1600,7 @@ function renderFertigCalendario(prog, ci) {
       </div>
 
       ${weekDays.map(day=>{
-        const prods   = day.isCalc ? calcs : day.isOther ? outros : [];
+        const prods   = day.isCalc ? calcs : day.isOther ? regularesC : [];
         const kgDia   = day.isCalc ? kgCalcDia : day.isOther ? kgOutrosDia : 0;
         const bColor  = day.isCalc ? '#16a34a33' : day.isOther ? '#1e40af33' : 'var(--border)';
         const tColor  = day.isCalc ? 'var(--green)' : day.isOther ? 'var(--blue)' : 'var(--muted)';
@@ -1567,6 +1613,10 @@ function renderFertigCalendario(prog, ci) {
           ${prods.length>0?prods.map(p=>`<div style="font-size:10px;color:var(--text);padding-left:8px">· ${p.nome}: <span style="color:${tColor}">${(day.isCalc?p.kg/nCalc:p.kg/nOutros).toFixed(3)} kg</span></div>`).join(''):'<div style="font-size:10px;color:var(--muted);padding-left:4px">—</div>'}
         </div>`;
       }).join('')}
+      ${microsC.length>0?`<div style="padding:8px 10px;background:#3b0d6422;border:1px solid #7c3aed55;border-radius:8px;margin-top:5px">
+        <div style="font-size:8px;color:#a78bfa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Micros — 1 aplic./sem</div>
+        ${microsC.map(a=>{const gStr=a.kg>=1?a.kg.toFixed(3)+' kg':(a.kg*1000).toFixed(0)+' g';return `<div style="font-size:10px;color:var(--text)">· ${a.nome}: <span style="color:#a78bfa;font-weight:500">${gStr}</span></div>`;}).join('')}
+      </div>`:''}
     </div>
   `;
 }
